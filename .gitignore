@@ -1,0 +1,16 @@
+# name all files to ignore
+*.o
+.*
+cippiS2d
+cippiS2s
+cippiS2t
+dypc2
+koopro4Ecl2
+koopro4QD
+new_QD/qdnevpt
+*build*
+version.h
+*pdf
+*txt
+src/koopro4QD.f77
+src/f_mrci_rdm4_cumulant.F90
