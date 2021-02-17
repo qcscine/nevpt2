@@ -289,7 +289,7 @@ if(ENABLE_DMRG)
     if(ENABLE_MOLCAS)
        set (proj_bin ${MOLCAS_BUILD_DIR}/External/qcmaquis/src/qcmaquis-driver-build/)
        if (ENABLE_DMRG)
-          if ("${MAQUIS_DMRG_DIR}" STREQUAL "")
+          if (NOT MAQUIS_DMRG_DIR)
             set(MAQUIS_DMRG_DIR ${MOLCAS_BUILD_DIR}/qcmaquis/share/cmake)
           endif()
 
