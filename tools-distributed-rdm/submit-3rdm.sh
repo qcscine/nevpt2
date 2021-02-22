@@ -9,7 +9,7 @@ chkptemplate=$templatedir/$chkp
 
 resfile=*.result*.*.h5
 
-rsync -aL $templatedir/$fcid $chkptemplate $mycurrdir
+cp -rv $templatedir/$fcid $chkptemplate $mycurrdir
 OMP_NUM_THREADS=$nproc $MOLCAS/qcmaquis/bin/dmrg_meas $mycurrdir/meas-3rdm.in > $mycurrdir/meas-3rdm.log
 
 rm -r $chkp

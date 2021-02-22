@@ -12,6 +12,6 @@ resfile=*.result*.*.h5
 # Load necessary modules here:
 #module load gcc/4.9.2 szip hdf5 boost python/2.7.6 intel
 
-rsync -aL $chkptemplate $mycurrdir
+cp -rv $chkptemplate $mycurrdir
 OMP_NUM_THREADS=$nproc $MOLCAS/qcmaquis/bin/dmrg_meas $mycurrdir/meas-4rdm.in > $mycurrdir/meas-4rdm.log
 rm -r $chkp
