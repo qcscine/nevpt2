@@ -307,13 +307,14 @@ if(ENABLE_DMRG)
 
     endif (ENABLE_MOLCAS)
 
-    if(DEFINED GA_LIBS AND NOT "${GA_LIBS}" STREQUAL "")
-      list (APPEND LINK_LIBS ${GA_LIBS})
-      add_definitions(-D_MOLCAS_MPP_)
-    endif()
 
   list (APPEND LINK_LIBS ${MAQUIS_DMRG_LIBRARIES} qcmaquis-driver)
   message (STATUS "DMRG interface succesfully added to target libs")
+
+  if(DEFINED GA_LIBS AND NOT "${GA_LIBS}" STREQUAL "")
+    list (APPEND LINK_LIBS ${GA_LIBS})
+    add_definitions(-D_MOLCAS_MPP_)
+  endif()
 endif(ENABLE_DMRG)
 
 add_library(AUXLIB_F ${AUXLIB_F_SOURCE_FILES})
