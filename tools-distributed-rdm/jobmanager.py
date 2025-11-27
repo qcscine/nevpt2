@@ -137,7 +137,7 @@ def create_job_scripts_4rdm():
       templateIO = io.StringIO(templateString)
       templateConfig = configparser.ConfigParser(allow_no_value=True)
       templateConfig.optionxform = str # disable converting the keys in the config file to lowercase
-      templateConfig.readfp(templateIO)
+      templateConfig.read_file(templateIO)
       try:
         L=templateConfig.getint("dummy",'L')
       except ValueError:
@@ -206,7 +206,7 @@ def create_job_scripts_3rdm():
       templateIO = io.StringIO(templateString)
       templateConfig = configparser.ConfigParser(allow_no_value=True)
       templateConfig.optionxform = str # disable converting the keys in the config file to lowercase
-      templateConfig.readfp(templateIO)
+      templateConfig.read_file(templateIO)
       try:
         L=templateConfig.getint("dummy",'L')
       except ValueError:
