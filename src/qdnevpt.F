@@ -148,10 +148,7 @@ C Arrays for the reduced Cholesky vectors, needed for speeding up the calc'n of 
 C and also the half-transformed Cholesky vectors for newint_xxxx transforms
       real*8, allocatable :: cho_reduced_J_core(:)
       real*8, allocatable :: cho_reduced_J_act(:,:)
-C Arrays for half-transformed newint Cholesky vectors to be initialised as (nchovec,nlvec,nstates)
-c TODO: FOR NOW, the transformed vectors for every state are stored at once, which might be quite memory hungry if one wishes to calculate a lot of states
-c One should check if the transformation can be performed one state at once, but this can be done at a later stage, once the algorithm works
-      real*8, allocatable :: cho_reduced_vec(:,:,:)
+      real*8, allocatable :: cho_reduced_vec(:,:)
 
 C BLAS ddot()
       real*8, external    :: ddot
@@ -544,7 +541,7 @@ C     Core-Fock operator
 
       if(iprint > 10)then
         call cpu_time(nevpt_time_end)
-        write (*,'(a,f10.2,a/)'),'Core fock operator constructed in ',
+        write (*,'(a,f10.2,a/)')'Core fock operator constructed in ',
      &  nevpt_time_end-nevpt_time_start,' seconds'
       end if
 
@@ -691,7 +688,7 @@ C     Virtual-Fock operator
 
       if(iprint > 10)then
         call cpu_time(nevpt_time_end)
-        write (*,'(a,f10.2,a/)'),'Virt. fock operator constructed in ',
+        write (*,'(a,f10.2,a/)')'Virt. fock operator constructed in ',
      &  nevpt_time_end-nevpt_time_start,' seconds'
       end if
 
@@ -702,6 +699,7 @@ C     Virtual-Fock operator
 
 !     !> print the orbital energies.
 
+      if (metat < 10) then
       write (6,*)
       write (6,*) 'Orbital energies (in CAS terminology)'//
      &            ' used in the NEVPT calculation'
@@ -726,6 +724,10 @@ C     Virtual-Fock operator
       do i=ncore+nact+1,norb
        write(6,'(i10,3x,100f15.8)') i,(epsnew(i,j),j=1,metat)
       enddo
+      else
+        write(6,'(a)')
+        write(6,*) 'Skipping orbital printout for more than nine roots.'
+      end if
 
 !     !> set frozen orbitals
       allocate(zgel(norb+norb+1)); zgel = .false.
@@ -780,257 +782,227 @@ C     Virtual-Fock operator
           enddo
         enddo
       enddo
-c
-c
-c     Termine V^0 (doppie inattive)
-c
 
-      if(Do_Cholesky) then
-! Prepare the arrays for storing the half-transformed Cholesky vectors (for the new newint_xxxx transformations)
-        allocate(cho_reduced_vec(nchovec,nlvec,metat))
-        cho_reduced_vec = 0.0d0
-
-! (half-)transform the Cholesky vectors
-        call cholesky_transform(cho_reduced_vec,ccore,cvirt,
-     &         ncore,nact,nvirt,metat)
-      end if
-
-      call cpu_time(nevpt_time_start)
-      ! 27-03-2016 Leon -- extended v0 with Cholesky array as an argument
-      ! passing the Cholesky array as an argument even if it hasn't been init'd (ie if we don't do Cholesky)
-      ! is an example of a terrible program design
-      ! but otherwise the whole file has to be rewritten as a module
-      call v0(ncore,nact,nvirt,epsnew,uv,uc,
-     *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     *   cvirt,cho_reduced_vec)
-      call cpu_time(nevpt_time_end)
-      write (6,'(a,f10.2,a )'),' V(0)   contributions calculated in ',
-     & nevpt_time_end-nevpt_time_start,' seconds'
-      call flush(6)
-      if(iprint > 0)then
-        write (6,*)
-        write (6,*)' Contribution of V(0) to Heff (SC and PC)'
-        write (6,*)
-        do istate=1,metat
-          write (6,'(I2,2x,10F15.10)') MultGroup%State(istate),
-     &                              (e2mp(istate,jstate),jstate=1,metat)
-        enddo
-        write (6,*)
-        write (6,*) ' Contribution of V(0) to the norm (SC and PC)'
-        write (6,*)
-        do istate=1,metat
-        write (6,'(''  State '',I2,''  norm = '',F15.10)')
-     &           MultGroup%State(istate), psimpp(1,istate)
-        enddo
-        call flush(6)
-      end if
+      if(Do_Cholesky) allocate(cho_reduced_vec(nchovec,nlvec))
 
 !------------------------------------------------------------------
-      !> read in 1-TDM
+!
+!     allocations need to be moved out of the state loop
+
       ncoppie=metat*(metat-1)/2
       allocate(daoff(ncoppie,nact,nact))
-
       daoff = 0
-
       if(ncoppie > 0)then
-        !> get data from file
         datadim(1)   = ncoppie; datadim(2:3) = nact; datadim_bound = 3
-
         call hdf5_get_data_dp(file_id(1), "1-TRDM" , datadim, daoff)
       end if
 
-!------------------------------------------------------------------
-!
-!     term V^(+1)
-
       allocate(gkp1a(metat,nact,nact))
       gkp1a = 0
-
-      !> get data from file
       datadim(1)   = metat; datadim(2:3) = nact; datadim_bound = 3
-
       call hdf5_get_data_dp(file_id(1), "1-EAKO" , datadim, gkp1a)
-
-      call cpu_time(nevpt_time_start)
-      call v1k(ncore,nact,nvirt,da,daoff,gkp1a,epsnew,uv,uc,
-     *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     *   cvirt,cho_reduced_vec)
-      call cpu_time(nevpt_time_end)
-      write (6,'(a,f10.2,a/)'),' V(+1)  contributions calculated in ',
-     * nevpt_time_end-nevpt_time_start,' seconds'
-      call flush(6)
-
-      deallocate (gkp1a)
-!------------------------------------------------------------------
-!
-!     term V^(-1)
 
       allocate(gkm1a(metat,nact,nact))
       gkm1a = 0
-
-      !> get data from file
       datadim(1)   = metat; datadim(2:3) = nact; datadim_bound = 3
       call hdf5_get_data_dp(file_id(1), "1-IPKO" , datadim, gkm1a)
-
-      call cpu_time(nevpt_time_start)
-      call vm1k(ncore,nact,nvirt,da,daoff,gkm1a,epsnew,uv,uc,
-     *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     *   ccore,cho_reduced_vec)
-      call cpu_time(nevpt_time_end)
-
-      write (6,'(a,f10.2,a/)'),' V(-1)  contributions calculated in ',
-     * nevpt_time_end-nevpt_time_start,' seconds'
-      call flush(6)
-      deallocate (gkm1a)
-!------------------------------------------------------------------
-!
-!     term V^(+2)
 
       allocate(daat(metat,nact,nact,nact,nact))
       allocate(gkp2aa(metat,nact,nact,nact,nact))
       allocate(daaoff(ncoppie,nact,nact,nact,nact))
-
       daat = 0; gkp2aa = 0; daaoff = 0
-
-      !> get data from file
       datadim(1)   = metat; datadim(2:5) = nact; datadim_bound = 5
-
       call hdf5_get_data_dp(file_id(1), "2-HRDM" , datadim, daat)
       call hdf5_get_data_dp(file_id(1), "2-EAKO" , datadim, gkp2aa)
-
       if(ncoppie > 0)then
         datadim(1)   = ncoppie
         call hdf5_get_data_dp(file_id(1), "2-TRDM" , datadim, daaoff)
       end if
 
-      call cpu_time(nevpt_time_start)
-      call v2mod(ncore,nact,gkp2aa,daat,daaoff,daoff,epsnew,uv,uc,
-     &   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,
-     &   nord_mol2nev,cho_reduced_vec)
-      call cpu_time(nevpt_time_end)
-      write (6,'(a,f10.2,a/)'),' V(+2)  contributions calculated in ',
-     & nevpt_time_end-nevpt_time_start,' seconds'
-      call flush(6)
-      deallocate (gkp2aa)
-      deallocate (daat)
-!------------------------------------------------------------------
-!
-!     term V^(-2)
-
       allocate(daa(metat,nact,nact,nact,nact))
       allocate(gkm2aa(metat,nact,nact,nact,nact))
-
       daa = 0; gkm2aa = 0
-
-      !> get data from file
       datadim(1)   = metat; datadim(2:5) = nact; datadim_bound = 5
-
       call hdf5_get_data_dp(file_id(1), "2-RDM"  , datadim, daa)
       call hdf5_get_data_dp(file_id(1), "2-IPKO" , datadim, gkm2aa)
-
-      call cpu_time(nevpt_time_start)
-      call vm2mod(ncore,nact,daa,daaoff,gkm2aa,epsnew,uv,uc,
-     &   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     &   cho_reduced_vec)
-      call cpu_time(nevpt_time_end)
-      write (6,'(a,f10.2,a/)'),' V(-2)  contributions calculated in ',
-     & nevpt_time_end-nevpt_time_start,' seconds'
-      call flush(6)
-      deallocate (gkm2aa)
-
-!------------------------------------------------------------------
-!
-!     term V^(0p)
 
       allocate(gk0pa(metat,nact,nact,nact,nact))
       allocate(gk0pd(metat,nact,nact,nact,nact))
       allocate(gk0pf(metat,nact,nact))
-
       gk0pa = 0; gk0pd = 0; gk0pf = 0
-
-      !> get data from file
       datadim(1)   = metat; datadim(2:5) = nact; datadim_bound = 5
-
       call hdf5_get_data_dp(file_id(1), "gk0pa" , datadim, gk0pa)
       call hdf5_get_data_dp(file_id(1), "gk0pd" , datadim, gk0pd)
       datadim_bound = 3
       call hdf5_get_data_dp(file_id(1), "gk0pf" , datadim, gk0pf)
 
+      if (.not.no_4rdm_terms) then
+        allocate(ro3(metat,nact,nact,nact,nact,nact,nact))
+        allocate(ro3off(ncoppie,nact,nact,nact,nact,nact,nact))
+        allocate(amat(metat,nact,nact,nact,nact,nact,nact))
+        allocate(bmat(metat,nact,nact,nact,nact))
+        allocate(cmat(metat,nact,nact,nact,nact))
+        allocate(dmat(metat,nact,nact))
+        datadim(1) = metat; datadim(2:7) = nact; datadim_bound = 7
+        ro3 = 0;
+        call hdf5_get_data_dp(file_id(1), "3-RDM" , datadim, ro3)
+        if(ncoppie > 0)then
+          datadim(1)   = ncoppie; datadim_bound = 7
+          call hdf5_get_data_dp(file_id(1), "3-TRDM" , datadim, ro3off)
+        end if
+      end if
+
+!------------------------------------------------------------------
+
+      ! big loop over all states to evaluate all perturber classes
+      do istate = 1, metat
+        write (6,'(a,i4)')' Contributions to state ', istate
+        write (6,'(a)') ' '
+
+        cho_reduced_vec(:,:) = 0.0d0
+        call cholesky_transform(cho_reduced_vec,ccore(:,:,istate),
+     &         cvirt(:,:,istate),ncore,nact,nvirt)
+
+!------------------------------------------------------------------
+!
+!     term V^0
+
+      call cpu_time(nevpt_time_start)
+      call v0(ncore,nact,nvirt,epsnew,uv,uc,
+     *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
+     *   cvirt,cho_reduced_vec,istate)
+      call cpu_time(nevpt_time_end)
+      write (6,'(a,f10.2,a )')'   V(0)   contributions calculated in ',
+     & nevpt_time_end-nevpt_time_start,' seconds'
+      call flush(6)
+
+!------------------------------------------------------------------
+!
+!     term V^(+1)
+
+      call cpu_time(nevpt_time_start)
+      call v1k(ncore,nact,nvirt,da,daoff,gkp1a,epsnew,uv,uc,
+     *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
+     *   cvirt,cho_reduced_vec,istate)
+      call cpu_time(nevpt_time_end)
+      write (6,'(a,f10.2,a/)')'   V(+1)  contributions calculated in ',
+     * nevpt_time_end-nevpt_time_start,' seconds'
+      call flush(6)
+
+!------------------------------------------------------------------
+!
+!     term V^(-1)
+
+      call cpu_time(nevpt_time_start)
+      call vm1k(ncore,nact,nvirt,da,daoff,gkm1a,epsnew,uv,uc,
+     *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
+     *   ccore,cho_reduced_vec,istate)
+      call cpu_time(nevpt_time_end)
+
+      write (6,'(a,f10.2,a/)')'   V(-1)  contributions calculated in ',
+     * nevpt_time_end-nevpt_time_start,' seconds'
+      call flush(6)
+
+!------------------------------------------------------------------
+!
+!     term V^(+2)
+
+      call cpu_time(nevpt_time_start)
+      call v2mod(ncore,nact,gkp2aa,daat,daaoff,daoff,epsnew,uv,uc,
+     &   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,
+     &   nord_mol2nev,cho_reduced_vec,istate)
+      call cpu_time(nevpt_time_end)
+      write (6,'(a,f10.2,a/)')'   V(+2)  contributions calculated in ',
+     & nevpt_time_end-nevpt_time_start,' seconds'
+      call flush(6)
+
+!------------------------------------------------------------------
+!
+!     term V^(-2)
+
+      call cpu_time(nevpt_time_start)
+      call vm2mod(ncore,nact,daa,daaoff,gkm2aa,epsnew,uv,uc,
+     &   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
+     &   cho_reduced_vec,istate)
+      call cpu_time(nevpt_time_end)
+      write (6,'(a,f10.2,a/)')'   V(-2)  contributions calculated in ',
+     & nevpt_time_end-nevpt_time_start,' seconds'
+      call flush(6)
+
+!------------------------------------------------------------------
+!
+!     term V^(0p)
+
       call cpu_time(nevpt_time_start)
       call v0pmod(ncore,nact,nvirt,da,daa,daoff,daaoff,gk0pa,gk0pd,
      &   gk0pf,epsnew,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,
-     &   nord_mol2nev,cvirt,ccore,compute_rho1st,cho_reduced_vec)
+     &   nord_mol2nev,cvirt,ccore,compute_rho1st,cho_reduced_vec,istate)
       call cpu_time(nevpt_time_end)
-      write (6,'(a,f10.2,a/)'),' V(0p)  contributions calculated in ',
+      write (6,'(a,f10.2,a/)')'   V(0p)  contributions calculated in ',
      & nevpt_time_end-nevpt_time_start,' seconds'
       call flush(6)
-      deallocate(cvirt, ccore, gk0pa, gk0pd, gk0pf)
-
 
 !------------------------------------------------------------------
 !
 !     term V^(-1p)
 
       if (.not.no_4rdm_terms) then
-      allocate(ro3(metat,nact,nact,nact,nact,nact,nact))
-      allocate(ro3off(ncoppie,nact,nact,nact,nact,nact,nact))
-      allocate(amat(metat,nact,nact,nact,nact,nact,nact))
-      allocate(bmat(metat,nact,nact,nact,nact))
-      allocate(cmat(metat,nact,nact,nact,nact))
-      allocate(dmat(metat,nact,nact))
+        amat = 0; bmat = 0; cmat = 0; dmat = 0
+        datadim(1)   = metat; datadim(2:7) = nact; datadim_bound = 7
+        call hdf5_get_data_dp(file_id(1), "amatIP", datadim, amat)
+        datadim_bound = 5
+        call hdf5_get_data_dp(file_id(1), "bmatIP", datadim, bmat)
+        call hdf5_get_data_dp(file_id(1), "cmatIP", datadim, cmat)
+        datadim_bound = 3
+        call hdf5_get_data_dp(file_id(1), "dmatIP", datadim, dmat)
 
-      ro3 = 0; amat = 0; bmat = 0; cmat = 0; dmat = 0
+        call cpu_time(nevpt_time_start)
+        call vmupE(ncore,nact,ro3,ro3off,amat,bmat,cmat,dmat,daa,da,
+     &      daaoff,daoff,epsnew,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
+     &     nord_nev2mol,nord_mol2nev,compute_rho1st,cho_reduced_vec,
+     &     istate)
+        call cpu_time(nevpt_time_end)
+       write (6,'(a,f10.2,a/)')'   V(-1p) contributions calculated in ',
+     &   nevpt_time_end-nevpt_time_start,' seconds'
+        call flush(6)
 
-      !> get data from file
-      datadim(1)   = metat; datadim(2:7) = nact; datadim_bound = 7
-
-      call hdf5_get_data_dp(file_id(1), "3-RDM" , datadim, ro3)
-      call hdf5_get_data_dp(file_id(1), "amatIP", datadim, amat)
-      datadim_bound = 5
-      call hdf5_get_data_dp(file_id(1), "bmatIP", datadim, bmat)
-      call hdf5_get_data_dp(file_id(1), "cmatIP", datadim, cmat)
-      datadim_bound = 3
-      call hdf5_get_data_dp(file_id(1), "dmatIP", datadim, dmat)
-
-      if(ncoppie > 0)then
-        datadim(1)   = ncoppie; datadim_bound = 7
-        call hdf5_get_data_dp(file_id(1), "3-TRDM" , datadim, ro3off)
-      end if
-
-      call cpu_time(nevpt_time_start)
-      call vmupE(ncore,nact,ro3,ro3off,amat,bmat,cmat,dmat,daa,da,
-     &    daaoff,daoff,epsnew,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-     &   nord_nev2mol,nord_mol2nev,compute_rho1st,cho_reduced_vec)
-      call cpu_time(nevpt_time_end)
-      write (6,'(a,f10.2,a/)'),' V(-1p) contributions calculated in ',
-     & nevpt_time_end-nevpt_time_start,' seconds'
-      call flush(6)
 !------------------------------------------------------------------
 !
 !     term V^(+1p)
 
-      amat = 0; bmat = 0; cmat = 0; dmat = 0
+        amat = 0; bmat = 0; cmat = 0; dmat = 0
+        datadim(1)   = metat; datadim(2:7) = nact; datadim_bound = 7
+        call hdf5_get_data_dp(file_id(1), "amatEA", datadim, amat)
+        datadim_bound = 5
+        call hdf5_get_data_dp(file_id(1), "bmatEA", datadim, bmat)
+        call hdf5_get_data_dp(file_id(1), "cmatEA", datadim, cmat)
+        datadim_bound = 3
+        call hdf5_get_data_dp(file_id(1), "dmatEA", datadim, dmat)
 
-      !> get data from file
-      datadim(1)   = metat; datadim(2:7) = nact; datadim_bound = 7
+        call cpu_time(nevpt_time_start)
+        call vpupE(ncore,nact,ro3,ro3off,amat,bmat,cmat,dmat,daa,da,
+     &     daaoff,daoff,epsnew,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
+     &     nord_nev2mol,nord_mol2nev,compute_rho1st,cho_reduced_vec,
+     &     istate)
+        call cpu_time(nevpt_time_end)
+       write (6,'(a,f10.2,a/)')'   V(+1p) contributions calculated in ',
+     &   nevpt_time_end-nevpt_time_start,' seconds'
+        call flush(6)
+      end if   ! (.not.no_4rdm_terms)
 
-      call hdf5_get_data_dp(file_id(1), "amatEA", datadim, amat)
-      datadim_bound = 5
-      call hdf5_get_data_dp(file_id(1), "bmatEA", datadim, bmat)
-      call hdf5_get_data_dp(file_id(1), "cmatEA", datadim, cmat)
-      datadim_bound = 3
-      call hdf5_get_data_dp(file_id(1), "dmatEA", datadim, dmat)
+      end do   ! loop over all states
 
-      call cpu_time(nevpt_time_start)
-      call vpupE(ncore,nact,ro3,ro3off,amat,bmat,cmat,dmat,daa,da,daaoff
-     &     ,daoff,epsnew,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-     &   nord_nev2mol,nord_mol2nev,compute_rho1st,cho_reduced_vec)
-      call cpu_time(nevpt_time_end)
-      write (6,'(a,f10.2,a/)'),' V(+1p) contributions calculated in ',
-     & nevpt_time_end-nevpt_time_start,' seconds'
-      deallocate(amat, bmat, cmat, dmat, ro3, ro3off, daa, daaoff)
-      call flush(6)
+      ! deallocate most, but not all, arrays allocated before the state loop
+      deallocate (gkp1a)
+      deallocate (gkm1a)
+      deallocate (gkp2aa)
+      deallocate (daat)
+      deallocate (gkm2aa)
+      deallocate(cvirt, ccore, gk0pa, gk0pd, gk0pf)
+      if (.not.no_4rdm_terms) then
+        deallocate(amat, bmat, cmat, dmat, ro3, ro3off, daa, daaoff)
       end if
+
 !------------------------------------------------------------------
 !
 !     Write the final results.
@@ -1674,20 +1646,21 @@ C
    37 FORMAT(8X,11(4X,A4,3X))
    36 FORMAT(/)
 C
-      DO 40 M=1,N2,5
-      K=M+4
-      IF(K.GE.N2) K=N2
-   10 WRITE(6,20) (J,J=M,K)
-      DO 40 I=1,N
-      WRITE(6,30) I,(A(I,J)/factor,J=M,K)
- 40   CONTINUE
+      DO M=1,N2,5
+        K=M+4
+        IF(K.GE.N2) K=N2
+   10   WRITE(6,20) (J,J=M,K)
+        DO I=1,N
+          WRITE(6,30) I,(A(I,J)/factor,J=M,K)
+        end do
+      end do
       call flush(6)
       RETURN
       END subroutine matout
 C***********************************************************************
       subroutine v0(ncore,nact,nvirt,epsnew,uv,uc,
      &   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     &   cvirt,cho_reduced_vec)
+     &   cvirt,cho_reduced_vec,istate)
       use info_symmetry
       use nevpt2_cfg, only : Do_Cholesky, no_pc, MultGroup
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
@@ -1718,7 +1691,8 @@ Cele QD_new
       real*8 uv(nvmax,nvmax,nsym,metat),uc(ncmax,ncmax,nsym,metat)
       integer nmo(nsym),nc(nsym),na(nsym),nv(nsym),nbe(nsym),ncmax,nvmax
       allocatable dumai(:,:,:),traint(:,:,:)
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 
       if (.not.Do_Cholesky) then
         allocate (dumai(nvirt,nvirt,metat))
@@ -1740,11 +1714,10 @@ Cele QD_new
             endif
 #endif
 
-
         traint = 0
          if (Do_Cholesky) then
-           call newint_irsj_cholesky(cho_reduced_vec,traint,
-     &    metat,ij,ii,ncore,nact,nvirt)
+           call newint_irsj_cholesky(cho_reduced_vec,traint(:,:,istate),
+     &                               ij,ii,ncore,nact,nvirt)
          else
            dumai  = 0
            call newint_irsjnew(metat,norb,ncore,nact,nvirt,
@@ -1766,16 +1739,7 @@ Cele QD_new
                   zrs=ir.eq.is
                   zij=ii.eq.ij
 
-                  do istate=1,metat
                   ab2 = 0.0d0
-! !                   if (Do_Cholesky) then
-!                     ab1 = cholesky_traint(cho_reduced_vec,
-!      &                   ii,ir,ij,is,istate,metat)
-!                     if(.not.(zrs.or.zij)) then
-!                       ab2 = cholesky_traint(cho_reduced_vec,
-!      &                   ii,is,ij,ir,istate,metat)
-!                     end if
-!                   else
                   ab1 = traint(irv,isv,istate)
                   if(.not.(zrs.or.zij)) then
                     ab2  = traint(isv,irv,istate)
@@ -1795,7 +1759,6 @@ Cele QD_new
                   psimpp(1,istate)=psimpp(1,istate)+co*co
                   e2enp(1,istate)=e2mpp(1,istate)
                   psienep(1,istate)=psimpp(1,istate)
-                  enddo
  500           enddo
  600        enddo
 
@@ -1811,7 +1774,7 @@ Cele QD_new
 c----------------------------------------------------------------
       subroutine v1k(ncore,nact,nvirt,da,daoff,gkp1a,epsnew,uv,uc,
      *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     *   cvirt,cho_reduced_vec)
+     *   cvirt,cho_reduced_vec,istate)
       use info_symmetry
       use nevpt2_cfg, only : Do_Cholesky, no_pc, MultGroup, print_level
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
@@ -1848,7 +1811,8 @@ Cele QD_new
       integer nmo(nsym),nc(nsym),na(nsym),nv(nsym),nbe(nsym),ncmax,nvmax
       allocatable cint(:),dumai(:,:,:),traint(:,:,:),traintk(:,:,:)
 
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 
       allocate(cint(metat))
       if (.not.Do_Cholesky) then
@@ -1885,11 +1849,11 @@ c
             endif
 
       if (Do_Cholesky) then
-       call newint_airj_cholesky(cho_reduced_vec,traint,
-     &    metat,ii,ij,ncore,nact,nvirt)
+       call newint_airj_cholesky(cho_reduced_vec,traint(:,:,istate),
+     &    ii,ij,ncore,nact,nvirt)
       if (ij.ne.ii)
-     & call newint_airj_cholesky(cho_reduced_vec,traintk,
-     &    metat,ij,ii,ncore,nact,nvirt)
+     & call newint_airj_cholesky(cho_reduced_vec,traintk(:,:,istate),
+     &    ij,ii,ncore,nact,nvirt)
       else
       call newint_airjnew(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -1903,16 +1867,13 @@ c
                issy=itsym(is)
                isijsy=its(ijsy,issy)
                isv=is-ncore-nact
-c      write (6,*) 'Eccitazione con gli indici',ii,ij,' -> ',is
 
-               do istate=1,metat
                   dnormk(istate,istate)=0.d0
                   epsimk(istate)=0.d0
-                  do jstate=1,istate-1
-                     dnormk(istate,jstate)=0.d0
+                  do jstate=1,metat
+                     if(jstate.eq.istate)cycle
                      dnormk(jstate,istate)=0.d0
                   enddo
-               enddo
 
                do ia=1,nact
                   iaa=ia+ncore
@@ -1924,23 +1885,10 @@ c      write (6,*) 'Eccitazione con gli indici',ii,ij,' -> ',is
                      iapsy=itsym(iaap)
                      if(its(isijsy,iapsy).ne.1)cycle
 
-                     do istate=1,metat
-c      call newint_airj(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,ia,ii,isv,ij,istate,contj)
         contj=traint(ia,isv,istate)
-c      call newint_airj(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,iap,ii,isv,ij,istate,contjp)
         contjp=traint(iap,isv,istate)
                      if (ij.ne.ii) then
-c      call newint_airj(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,ia,ij,isv,ii,istate,contk)
         contk=traintk(ia,isv,istate)
-c      call newint_airj(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,iap,ij,isv,ii,istate,contkp)
         contkp=traintk(iap,isv,istate)
                      endif
                      if (ij.eq.ii) then
@@ -1958,19 +1906,20 @@ c     *   nord_nev2mol,nord_mol2nev,iap,ij,isv,ii,istate,contkp)
      $                       *ro*cint(istate)
                         epsimk(istate)=epsimk(istate)+gkp1a(istate,ia
      $                       ,iap)*cint(istate)
-                        do jstate=1,istate-1
-                           ijcou=(istate-1)*(istate-2)/2+jstate
-                           ro=-daoff(ijcou,iap,ia)
-                           ro2=-daoff(ijcou,ia,iap)
+                        do jstate=1,metat
+                           if(jstate.eq.istate)cycle
+                           if(jstate.lt.istate)then
+                              ijcou=(istate-1)*(istate-2)/2+jstate
+                              ro=-daoff(ijcou,iap,ia)
+                           else
+                              ijcou=(jstate-1)*(jstate-2)/2+istate
+                              ro=-daoff(ijcou,ia,iap)
+                           endif
                            dnormk(jstate,istate)=dnormk(jstate,istate)+2
      $                          .d0*ro*cint(istate)
-                           dnormk(istate,jstate)=dnormk(istate,jstate)+2
-     $                          .d0*ro2*cint(jstate)
                         enddo
-                     enddo
                   enddo
                enddo
-               do istate=1,metat
                   den(istate)=0.d0
                   if (abs(dnormk(istate,istate)).gt.0.d0)then
                      epsimk(istate)=epsimk(istate)/dnormk(istate,istate)
@@ -1983,22 +1932,15 @@ c     *   nord_nev2mol,nord_mol2nev,iap,ij,isv,ii,istate,contkp)
                      e2mpp(2,istate)=e2mpp(2,istate)+co
                      psimpp(2,istate)=psimpp(2,istate)+con
                   endif
-               enddo
-               do istate=1,metat
                   e2(istate,istate)=e2mpp(2,istate)
-                  do jstate=1,istate-1
+                  do jstate=1,metat
+                     if(jstate.eq.istate)cycle
                      if(den(istate).ne.0.d0)e2mp(jstate,istate)
      $                    =e2mp(jstate,istate)+dnormk(jstate,istate)
      $                    /den(istate)
-                     if(den(jstate).ne.0.d0)e2mp(istate,jstate)
-     $                    =e2mp(istate,jstate)+dnormk(istate,jstate)
-     $                    /den(jstate)
                      if(den(istate).ne.0.d0)e2(jstate,istate)=e2(jstate
      $                    ,istate)+dnormk(jstate,istate)/den(istate)
-                     if(den(jstate).ne.0.d0)e2(istate,jstate)=e2(istate
-     $                    ,jstate)+dnormk(istate,jstate)/den(jstate)
                   enddo
-               enddo
  600        enddo
 
  700     enddo
@@ -2008,19 +1950,15 @@ c     *   nord_nev2mol,nord_mol2nev,iap,ij,isv,ii,istate,contkp)
       write (6,*)
       write (6,*)' Contribution of V(+1) to Heff (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(+1) to the norm (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psimpp(2,istate)
-      enddo
       end if
       deallocate(cint)
       if(allocated(traint)) deallocate(traint)
@@ -2031,14 +1969,12 @@ c     *   nord_nev2mol,nord_mol2nev,iap,ij,isv,ii,istate,contkp)
       deallocate(den)
       write (6,*)
       call flush(6)
-
       if(no_pc) goto 999
 c----Partially contracted NEV-PT---------------------------------
       allocate(s(1:nact,1:nact))
       allocate(coef(nact,nact,metat))
       allocate(w(nact,metat))
       allocate(work(3*nact))
-      do istate=1,metat
          do i=1,nact
             do j=1,nact
                if(i.ne.j)then
@@ -2107,39 +2043,32 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
             print '(a,i2,a,f12.8)','eps(',i,')=',w(i,istate)
          enddo
       endif
-      enddo
       deallocate(s)
       call e2p1cont(e2,psi2,coef,w,da,daoff,epsnew,uv,uc,factor,
      *      nact,ncore,nvirt,norb,nnew,metat,nmo,nc,na,nv,nbe,
      *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,zgel,
-     *      cvirt,cho_reduced_vec)
+     *      cvirt,cho_reduced_vec,istate)
       if(print_level > 0)then
       write (6,*)
       write (6,*)' Contribution of V(+1) to Heff (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(+1) to the norm (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),psi2(istate)
-      enddo
       end if
-      do istate=1,metat
          e2enp(2,istate)=e2(istate,istate)
          psienep(2,istate)=psi2(istate)
          psien(istate)=psien(istate)+psienep(2,istate)
          e2en(istate,istate)=e2en(istate,istate)+e2(istate,istate)
-         do jstate=1,istate-1
-            e2en(istate,jstate)=e2en(istate,jstate)+e2(istate,jstate)
+         do jstate=1,metat
+            if(jstate.eq.istate)cycle
             e2en(jstate,istate)=e2en(jstate,istate)+e2(jstate,istate)
          enddo
-      enddo
       deallocate(coef)
       deallocate(w)
       deallocate(work)
@@ -2165,7 +2094,7 @@ c----------------------------------------------------------------
 c-----------------------------------------------------------
       subroutine vm1k(ncore,nact,nvirt,da,daoff,gkm1a,epsnew,uv,uc,
      *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     *   ccore,cho_reduced_vec)
+     *   ccore,cho_reduced_vec,istate)
       use info_symmetry
       use nevpt2_cfg, only : Do_Cholesky, no_pc, MultGroup, print_level
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
@@ -2203,8 +2132,9 @@ Cele QD_new
       allocatable cint(:),contj(:),contk(:),contjp(:),contkp(:),
      *            traint(:,:,:),traintk(:,:,:),dumai(:,:,:)
 
-      ! Cholesky half-transformed vectors
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      ! Cholesky half-transformed vector
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 
       allocate(cint(metat))
       allocate(contj(metat))
@@ -2239,14 +2169,13 @@ c
       endif
 
       if (Do_Cholesky) then
-        call newint_ris_a_cholesky(cho_reduced_vec,traint,
-     &    metat,ir,is,ncore,nact,nvirt)
+        call newint_ris_a_cholesky(cho_reduced_vec,traint(:,:,istate),
+     &    ir,is,ncore,nact,nvirt)
         if (ir.ne.is) then
-          call newint_ris_a_cholesky(cho_reduced_vec,traintk,
-     &    metat,is,ir,ncore,nact,nvirt)
+          call newint_ris_a_cholesky(cho_reduced_vec,
+     &    traintk(:,:,istate),is,ir,ncore,nact,nvirt)
         end if
       else
-
       call newint_ris_anew(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *   nord_nev2mol,nord_mol2nev,irv,isv,traint,dumai,ccore)
@@ -2260,37 +2189,20 @@ c
       isy=itsym(ii)
       irsisy=its(irssy,isy)
 
-
-
-c      write (6,*) 'Eccitazione con gli indici',ii,' -> ',ir,is
-
-      do istate=1,metat
          dnormk(istate,istate)=0.d0
          epsimk(istate)=0.d0
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
-            dnormk(istate,jstate)=0.d0
             dnormk(jstate,istate)=0.d0
          enddo
-      enddo
-
-c      call newint_ris_a(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,irv,ii,isv,dintj)
-c      call newint_ris_a(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,isv,ii,irv,dintk)
 
       do ia=1,nact
          iaa=ia+ncore
          iasy=itsym(iaa)
          if(its(irsisy,iasy).ne.1)cycle
 
-      do istate=1,metat
          contj(istate)=traint(ii,ia,istate)
          if (ir.ne.is)  contk(istate)=traintk(ii,ia,istate)
-c         write (6,*) contj(istate),contk(istate)
-      enddo
 
          do iap=1,nact
             iaap=iap+ncore
@@ -2298,10 +2210,8 @@ c         write (6,*) contj(istate),contk(istate)
             if(its(irsisy,iapsy).ne.1)cycle
 
 
-      do istate=1,metat
        contjp(istate)=traint(ii,iap,istate)
        if (ir.ne.is) contkp(istate)=traintk(ii,iap,istate)
-c         write (6,*) contjp(istate),contkp(istate)
           if (ir.eq.is) then
              cint(istate)=.5d0*contj(istate)*contjp(istate)
           else
@@ -2314,17 +2224,20 @@ c         write (6,*) contjp(istate),contkp(istate)
      $              *da(istate,ia,iap)*cint(istate)
                epsimk(istate)=epsimk(istate)+
      *               gkm1a(istate,ia,iap)*cint(istate)
-               do jstate=1,istate-1
-                  ijcou=(istate-1)*(istate-2)/2+jstate
+               do jstate=1,metat
+                  if(jstate.eq.istate)cycle
+                  if(jstate.lt.istate)then
+                     ijcou=(istate-1)*(istate-2)/2+jstate
+                     ro=daoff(ijcou,ia,iap)
+                  else
+                     ijcou=(jstate-1)*(jstate-2)/2+istate
+                     ro=daoff(ijcou,iap,ia)
+                  endif
                   dnormk(jstate,istate)=dnormk(jstate,istate)+2.d0
-     $                 *daoff(ijcou,ia,iap)*cint(istate)
-                  dnormk(istate,jstate)=dnormk(istate,jstate)+2.d0
-     $                 *daoff(ijcou,iap,ia)*cint(jstate)
-               enddo
+     $                 *ro*cint(istate)
             enddo
          enddo
       enddo
-      do istate=1,metat
          den(istate)=0.d0
          if (abs(dnormk(istate,istate)).ge.1.d-14) then
             epsimk(istate)=-epsimk(istate)/dnormk(istate,istate)
@@ -2337,22 +2250,14 @@ c         write (6,*) contjp(istate),contkp(istate)
             e2mpp(3,istate)=e2mpp(3,istate)+co
             psimpp(3,istate)=psimpp(3,istate)+con
          endif
-      enddo
-      do istate=1,metat
          e2(istate,istate)=e2mpp(3,istate)
-         do jstate=1,istate-1
+         do jstate=1,metat
+            if(jstate.eq.istate)cycle
             if(den(istate).ne.0.d0)e2mp(jstate,istate)=e2mp(jstate
      $           ,istate)+dnormk(jstate,istate)/den(istate)
-            if(den(jstate).ne.0.d0)e2mp(istate,jstate)=e2mp(istate
-     $           ,jstate)+dnormk(istate,jstate)/den(jstate)
             if(den(istate).ne.0.d0)e2(jstate,istate)=e2(jstate,istate)
      $           +dnormk(jstate,istate)/den(istate)
-            if(den(jstate).ne.0.d0)e2(istate,jstate)=e2(istate,jstate)
-     $           +dnormk(istate,jstate)/den(jstate)
          enddo
-      enddo
-
-
 
  600  enddo
 
@@ -2364,19 +2269,15 @@ c         write (6,*) contjp(istate),contkp(istate)
       write (6,*)
       write (6,*)' Contribution of V(-1) to Heff (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(-1) to the norm (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psimpp(3,istate)
-      enddo
       end if
       if(allocated(traint))deallocate(traint)
       if(allocated(traintk))deallocate(traintk)
@@ -2397,7 +2298,6 @@ c----Partially contracted NEV-PT-------------
       allocate(coef(nact,nact,metat))
       allocate(w(nact,metat))
       allocate(work(3*nact))
-      do istate=1,metat
          do i=1,nact
             do j=1,nact
                s(i,j)=da(istate,i,j)
@@ -2462,42 +2362,34 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
                print '(a,i2,a,f12.8)','eps(',i,')=',w(i,istate)
             enddo
          endif
-      enddo
       deallocate(s)
       call e2m1cont(e2,psi2,coef,w,da,daoff,nact,nnew,ncore
      $     ,norb,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
      *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,
-     *      ccore,cho_reduced_vec)
+     *      ccore,cho_reduced_vec,istate)
       if(print_level > 0)then
       write (6,*)
       write (6,*)' Contribution of V(-1) to Heff (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(-1) to the norm (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psi2(istate)
-      enddo
       end if
       call flush(6)
-      do istate=1,metat
          e2enp(3,istate)=e2(istate,istate)
          psienep(3,istate)=psi2(istate)
          psien(istate)=psien(istate)+psienep(3,istate)
          e2en(istate,istate)=e2en(istate,istate)+e2(istate,istate)
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
-            e2en(istate,jstate)=e2en(istate,jstate)+e2(istate,jstate)
             e2en(jstate,istate)=e2en(jstate,istate)+e2(jstate,istate)
          enddo
-      enddo
       deallocate(coef)
       deallocate(w)
       deallocate(work)
@@ -2508,7 +2400,7 @@ c-------------------------------------------------------------
       subroutine e2m1cont(e2,psi2,coef,w,da,daoff,nact,nnew,ncore
      $     ,norb,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
      *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,
-     *      ccore,cho_reduced_vec)
+     *      ccore,cho_reduced_vec,istate)
 
       use info_symmetry
       use nevpt2_cfg, only : Do_Cholesky
@@ -2528,7 +2420,8 @@ Cele QD_new
       allocatable traint(:,:,:),traintk(:,:,:),dumai(:,:,:)
 
       ! Cholesky half-transformed vectors
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 
       nvirt=norb-nact-ncore
       if (.not.Do_Cholesky)allocate (dumai(ncore,nact,metat))
@@ -2547,20 +2440,21 @@ c---costruzione matrice S
          do mu=1,nact
             do ap=1,nact
                ijcou=0
-               do istate=1,metat
                   s(a,mu,istate,istate)=s(a,mu,istate,istate)+da(istate
      $                 ,ap,a)*coef(ap,mu,istate)
-                  do jstate=1,istate
+                  do jstate=1,metat
                      if(jstate.eq.istate)cycle
-                     ijcou=ijcou+1
+                     if(jstate.lt.istate)then
+                        ijcou=(istate-1)*(istate-2)/2+jstate
+                        ro=daoff(ijcou,ap,a)
+                     else
+                        ijcou=(jstate-1)*(jstate-2)/2+istate
+                        ro=daoff(ijcou,a,ap)
+                     endif
                      coe=coef(ap,mu,istate)
                      if(coe.ne.0.d0)s(a,mu,jstate,istate)=s(a,mu,jstate
-     $                    ,istate)+daoff(ijcou,ap,a)*coe
-                     coe=coef(ap,mu,jstate)
-                     if(coe.ne.0.d0)s(a,mu,istate,jstate)=s(a,mu,istate
-     $                    ,jstate)+daoff(ijcou,a,ap)*coe
+     $                    ,istate)+ro*coe
                   enddo
-               enddo
             enddo
          enddo
       enddo
@@ -2576,11 +2470,11 @@ c--------------------------------
          irss=its(irs,iss)
 
          if (Do_Cholesky) then
-           call newint_ris_a_cholesky(cho_reduced_vec,traint,
-     &       metat,ir,is,ncore,nact,nvirt)
+           call newint_ris_a_cholesky(cho_reduced_vec,
+     &       traint(:,:,istate), ir,is,ncore,nact,nvirt)
            if (ir.ne.is) then
-              call newint_ris_a_cholesky(cho_reduced_vec,traintk,
-     &        metat,is,ir,ncore,nact,nvirt)
+              call newint_ris_a_cholesky(cho_reduced_vec,
+     &        traintk(:,:,istate), is,ir,ncore,nact,nvirt)
            end if
          else
            call newint_ris_anew(metat,norb,ncore,nact,nvirt,
@@ -2596,12 +2490,6 @@ c--------------------------------
            if (zgel(i)) goto 1
            iis=itsym(i)
            iirss=its(irss,iis)
-c      call newint_ris_a(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,irv,i,isv,dintj)
-c      call newint_ris_a(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,isv,i,irv,dintk)
                do mu=1,nact
                   call zeroe(rsmui,metat**2)
                   call zeroe(rsmuip,metat**2)
@@ -2609,7 +2497,6 @@ c     *   nord_nev2mol,nord_mol2nev,isv,i,irv,dintk)
                   ias=itsym(a+ncore)
                   if (ias.ne.iirss) goto 2
                      if(ir.ne.is)then
-                        do istate=1,metat
                         cint=traint(i,a,istate)+traintk(i,a,istate)
                         bint=traint(i,a,istate)-traintk(i,a,istate)
                            rsmui(istate,istate)=rsmui(istate,istate)
@@ -2623,9 +2510,7 @@ c     *   nord_nev2mol,nord_mol2nev,isv,i,irv,dintk)
                               rsmuip(jstate,istate)=rsmuip(jstate,istate
      $                             )+bint*s(a,mu,jstate,istate)
                            enddo
-                        enddo
                      else
-                        do istate=1,metat
                          cint=traint(i,a,istate)
                            rsmui(istate,istate)=rsmui(istate,istate)
      $                          +cint*s(a,mu,istate,istate)
@@ -2634,46 +2519,32 @@ c     *   nord_nev2mol,nord_mol2nev,isv,i,irv,dintk)
                               rsmui(jstate,istate)=rsmui(jstate,istate)
      $                             +cint*s(a,mu,jstate,istate)
                            enddo
-                        enddo
                      endif
   2               enddo ! do a
-                  do istate=1,metat
                      deno(istate)=w(mu,istate)+epsnew(ir,istate)+
      *                        epsnew(is,istate)-epsnew(i,istate)
-                  enddo
                   if(ir.ne.is)then
-                     do istate=1,metat
                         contri=(0.5d0*rsmui(istate,istate)**2+1.5d0
      $                       *rsmuip(istate,istate)**2)/deno(istate)
                      e2(istate,istate)=e2(istate,istate)-contri
                      psi2(istate)=psi2(istate)+contri/deno(istate)
-                     do jstate=1,istate
+                     do jstate=1,metat
                         if(jstate.eq.istate)cycle
                         contri=(0.5d0*rsmui(jstate,istate)*rsmui(istate
      $                       ,istate)+1.5d0*rsmuip(jstate,istate)
      $                       *rsmuip(istate,istate))/deno(istate)
                         e2(jstate,istate)=e2(jstate,istate)-contri
-                        contri=(0.5d0*rsmui(istate,jstate)*rsmui(jstate
-     $                       ,jstate)+1.5d0*rsmuip(istate,jstate)
-     $                       *rsmuip(jstate,jstate))/deno(jstate)
-                        e2(istate,jstate)=e2(istate,jstate)-contri
                      enddo
-                  enddo
                   else
-                     do istate=1,metat
                         contri=rsmui(istate,istate)**2/deno(istate)
                         e2(istate,istate)=e2(istate,istate)-contri
                         psi2(istate)=psi2(istate)+contri/deno(istate)
-                        do jstate=1,istate
+                        do jstate=1,metat
                            if(jstate.eq.istate)cycle
                            contri=rsmui(jstate,istate)*rsmui(istate
      $                          ,istate)/deno(istate)
                            e2(jstate,istate)=e2(jstate,istate)-contri
-                           contri=rsmui(istate,jstate)*rsmui(jstate
-     $                          ,jstate)/deno(jstate)
-                           e2(istate,jstate)=e2(istate,jstate)-contri
                         enddo
-                     enddo
                   endif
                enddo
  1          enddo
@@ -2691,7 +2562,8 @@ c     *   nord_nev2mol,nord_mol2nev,isv,i,irv,dintk)
 c-----------------------------------------------------------
       subroutine e2m2cont(e2,psi2,coef,w,daa,daaoff,nact,ncore,norb
      $     ,nnew,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
-     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec)
+     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec,
+     &      istate)
       use info_symmetry
       use nevpt2_cfg, only : Do_Cholesky
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
@@ -2704,7 +2576,8 @@ c-----------------------------------------------------------
       integer a,ap,b,bp,ab,abp
 
       ! Cholesky half-transformed vectors
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 Cele QD_new
       real *8 epsnew(norb,metat)
       integer nsym,nord_nev2mol(norb),nord_mol2nev(norb)
@@ -2733,24 +2606,23 @@ c---costruzione matrice S
                   do bp=1,nact
                      abp=abp+1
                      ijcou=0
-                     do istate=1,metat
                         coe=coef(abp,mu,istate)
                         if(coe.ne.0.d0)s(ab,mu,istate,istate)=s(ab,mu
      $                       ,istate,istate)+daa(istate,ap,bp,a,b)
      $                       *coe
-                        do jstate=1,istate
+                        do jstate=1,metat
                            if(jstate.eq.istate)cycle
-                           ijcou=ijcou+1
+                           if(jstate.lt.istate)then
+                              ijcou=(istate-1)*(istate-2)/2+jstate
+                              ro=daaoff(ijcou,bp,ap,b,a)
+                           else
+                              ijcou=(jstate-1)*(jstate-2)/2+istate
+                              ro=daaoff(ijcou,b,a,bp,ap)
+                           endif
                            coe=coef(abp,mu,istate)
                            if(coe.ne.0.d0)s(ab,mu,jstate,istate)=s(ab,mu
-     $                         ,jstate,istate)+daaoff(ijcou,bp,ap,b,a)
-     $                          *coe
-                           coe=coef(abp,mu,jstate)
-                           if(coe.ne.0.d0)s(ab,mu,istate,jstate)=s(ab,mu
-     $                          ,istate,jstate)+daaoff(ijcou,b,a,bp,ap)
-     $                          *coe
+     $                         ,jstate,istate)+ro*coe
                         enddo
-                     enddo
                   enddo
                enddo
             enddo
@@ -2767,8 +2639,8 @@ c--------------------------------
          iss=itsym(is)
          irss=its(irs,iss)
           if (Do_Cholesky) then
-            call newint_rasb_cholesky(cho_reduced_vec,dint1,
-     &    metat,ir,is,ncore,nact,nvirt)
+            call newint_rasb_cholesky(cho_reduced_vec,dint1(:,:,istate),
+     &    ir,is,ncore,nact,nvirt)
           else
       call newint_rs_ab(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -2785,7 +2657,6 @@ c--------------------------------
                      ibs=itsym(b+ncore)
                      irsabs=its(irsas,ibs)
                      if (irsabs.ne.1) cycle
-                     do istate=1,metat
                       rsmu(istate,istate)=rsmu(istate,istate)+
      $                 dint1(b,a,istate)*s(ab,mu,istate,istate)
                         do jstate=1,metat
@@ -2793,27 +2664,19 @@ c--------------------------------
                            rsmu(jstate,istate)=rsmu(jstate,istate)+
      $                        dint1(b,a,istate)*s(ab,mu,jstate,istate)
                         enddo
-                     enddo
                   enddo
                enddo
-               do istate=1,metat
                   deno(istate)=w(mu,istate)+
      *            epsnew(ir,istate)+epsnew(is,istate)
-               enddo
-               do istate=1,metat
                   contri=rsmu(istate,istate)**2/deno(istate)
                   e2(istate,istate)=e2(istate,istate)-contri
                   psi2(istate)=psi2(istate)+contri/deno(istate)
-                  do jstate=1,istate
+                  do jstate=1,metat
                      if(jstate.eq.istate)cycle
                      contri=rsmu(jstate,istate)*rsmu(istate,istate)
      $                    /deno(istate)
                      e2(jstate,istate)=e2(jstate,istate)-contri
-                     contri=rsmu(istate,jstate)*rsmu(jstate,jstate)
-     $                    /deno(jstate)
-                     e2(istate,jstate)=e2(istate,jstate)-contri
                   enddo
-               enddo
             enddo
          enddo
       enddo
@@ -2824,7 +2687,8 @@ c--------------------------------
 c-----------------------------------------------------------
       subroutine e2m2contp(e2,psi2,coef,w,daa,daaoff,nact,ncore,norb
      $     ,nnew,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
-     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec)
+     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec,
+     &      istate)
       use info_symmetry
       use nevpt2_cfg, only : Do_Cholesky
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
@@ -2836,7 +2700,8 @@ c-----------------------------------------------------------
       allocatable s(:,:,:,:),rsmu(:,:),deno(:)
       integer a,ap,b,bp,ab,abp
       ! Cholesky half-transformed vectors
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 Cele QD_new
       real *8 epsnew(norb,metat)
       integer nsym,nord_nev2mol(norb),nord_mol2nev(norb)
@@ -2865,25 +2730,25 @@ c---costruzione matrice S
                   do bp=ap,nact
                      abp=abp+1
                      ijcou=0
-                     do istate=1,metat
                         coe=coef(abp,mu,istate)
                         if(coe.ne.0.d0)s(ab,mu,istate,istate)=s(ab,mu
      $                       ,istate,istate)+0.5d0*(daa(istate,ap,bp,a,b
      $                       )+daa(istate,ap,bp,b,a))*coe
-                        do jstate=1,istate
+                        do jstate=1,metat
                            if(jstate.eq.istate)cycle
-                           ijcou=ijcou+1
+                           if(jstate.lt.istate)then
+                              ijcou=(istate-1)*(istate-2)/2+jstate
+                              ro=0.5d0*(daaoff(ijcou,bp,ap,b,a)
+     $                          +daaoff(ijcou,ap,bp,b,a))
+                           else
+                              ijcou=(jstate-1)*(jstate-2)/2+istate
+                              ro=0.5d0*(daaoff(ijcou,b,a,ap,bp)
+     $                          +daaoff(ijcou,b,a,bp,ap))
+                           endif
                            coe=coef(abp,mu,istate)
                            if(coe.ne.0.d0)s(ab,mu,jstate,istate)=s(ab,mu
-     $                          ,jstate,istate)+0.5d0*(daaoff(ijcou,bp
-     $                          ,ap,b,a)+daaoff(ijcou,ap,bp,b,a))
-     $                          *coe
-                           coe=coef(abp,mu,jstate)
-                           if(coe.ne.0.d0)s(ab,mu,istate,jstate)=s(ab,mu
-     $                          ,istate,jstate)+0.5d0*(daaoff(ijcou,b
-     $                          ,a,ap,bp)+daaoff(ijcou,b,a,bp,ap))*coe
+     $                          ,jstate,istate)+ro*coe
                         enddo
-                     enddo
                   enddo
                enddo
             enddo
@@ -2893,8 +2758,8 @@ c--------------------------------
       do ir=ncore+nact+1,norb
       irv=ir-ncore-nact
       if (Do_Cholesky) then
-        call newint_rasb_cholesky(cho_reduced_vec,dint1,
-     &    metat,ir,ir,ncore,nact,nvirt)
+        call newint_rasb_cholesky(cho_reduced_vec,dint1(:,:,istate),
+     &    ir,ir,ncore,nact,nvirt)
       else
         call newint_rs_ab(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -2909,7 +2774,6 @@ c--------------------------------
           ab=ab+1
           ibs=itsym(b+ncore)
           if (ias.ne.ibs) cycle
-          do istate=1,metat
           dint2=dint1(a,b,istate)
           if(a.ne.b)dint2=dint2*2.d0
            rsmu(istate,istate)=rsmu(istate,istate)+dint2
@@ -2919,26 +2783,18 @@ c--------------------------------
             rsmu(jstate,istate)=rsmu(jstate,istate)+
      $           dint2*s(ab,mu,jstate,istate)
            enddo
-          enddo
          enddo
         enddo
-        do istate=1,metat
          deno(istate)=w(mu,istate)+epsnew(ir,istate)+epsnew(ir,istate)
-        enddo
-        do istate=1,metat
          contri=rsmu(istate,istate)**2/deno(istate)
          e2(istate,istate)=e2(istate,istate)-contri
          psi2(istate)=psi2(istate)+contri/deno(istate)
-         do jstate=1,istate
+         do jstate=1,metat
           if(jstate.eq.istate)cycle
           contri=rsmu(jstate,istate)*rsmu(istate,istate)
      $         /deno(istate)
           e2(jstate,istate)=e2(jstate,istate)-contri
-          contri=rsmu(istate,jstate)*rsmu(jstate,jstate)
-     $         /deno(jstate)
-          e2(istate,jstate)=e2(istate,jstate)-contri
          enddo
-        enddo
        enddo
       enddo
       deallocate (dint1)
@@ -2947,7 +2803,8 @@ c--------------------------------
 c-----------------------------------------------------------
       subroutine e2p2cont(e2,psi2,coef,w,daa,daaoff,nact,ncore,
      $  norb,nnew,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
-     *  ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec)
+     *  ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec,
+     &  istate)
       use info_symmetry
       ! Leon -- for Cholesky
       use nevpt2_cfg, only : Do_Cholesky
@@ -2962,7 +2819,8 @@ c-----------------------------------------------------------
       ! Leon
       ! traint as in v2mod()
       ! Leon -- for Cholesky
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 Cele QD_new
       real *8 epsnew(norb,metat)
       integer nsym,nord_nev2mol(norb),nord_mol2nev(norb)
@@ -2994,24 +2852,23 @@ c---costruzione matrice S
                   do bp=1,nact
                      abp=abp+1
                      ijcou=0
-                     do istate=1,metat
                         coe=coef(abp,mu,istate)
                         if(coe.ne.0.d0)s(ab,mu,istate,istate)=s(ab,mu
      $                       ,istate,istate)+daa(istate,ap,bp,a,b)
      $                       *coe
-                        do jstate=1,istate
+                        do jstate=1,metat
                            if(jstate.eq.istate)cycle
-                           ijcou=ijcou+1
+                           if(jstate.lt.istate)then
+                              ijcou=(istate-1)*(istate-2)/2+jstate
+                              ro=daaoff(ijcou,b,a,bp,ap)
+                           else
+                              ijcou=(jstate-1)*(jstate-2)/2+istate
+                              ro=daaoff(ijcou,bp,ap,b,a)
+                           endif
                            coe=coef(abp,mu,istate)
                            if(coe.ne.0.d0)s(ab,mu,jstate,istate)=s(ab,mu
-     $                          ,jstate,istate)+daaoff(ijcou,b,a,bp,ap)
-     $                          *coe
-                           coe=coef(abp,mu,jstate)
-                           if(coe.ne.0.d0)s(ab,mu,istate,jstate)=s(ab,mu
-     $                          ,istate,jstate)+daaoff(ijcou,bp,ap,b,a)
-     $                          *coe
+     $                          ,jstate,istate)+ro*coe
                         enddo
-                     enddo
                   enddo
                enddo
             enddo
@@ -3029,8 +2886,8 @@ c--------------------------------
             iijs=its(iis,ijs)
 
             if(Do_Cholesky) then
-              call newint_iajb_cholesky(cho_reduced_vec,traint,
-     &    metat,i,j,ncore,nact,nvirt)
+              call newint_iajb_cholesky(cho_reduced_vec,
+     &          traint(:,:,istate),i,j,ncore,nact,nvirt)
             end if
             do mu=1,nact2
                call zeroe(aijmu,metat**2)
@@ -3042,7 +2899,6 @@ c--------------------------------
                      ab=ab+1
                      ibs=itsym(b+ncore)
                      if (ibs.ne.iijas) cycle
-                     do istate=1,metat
                       if (Do_Cholesky) then
                         dint = traint(b,a,istate)
                       else
@@ -3057,26 +2913,18 @@ c--------------------------------
                         aijmu(jstate,istate)=aijmu(jstate,istate)+
      $                       dint*s(ab,mu,jstate,istate)
                      enddo
-                  enddo
                enddo
             enddo
-            do istate=1,metat
              deno(istate)=w(mu,istate)-epsnew(i,istate)-epsnew(j,istate)
-            enddo
-               do istate=1,metat
                   contri=aijmu(istate,istate)**2/deno(istate)
                   e2(istate,istate)=e2(istate,istate)-contri
                   psi2(istate)=psi2(istate)+contri/deno(istate)
-                  do jstate=1,istate
+                  do jstate=1,metat
                      if(jstate.eq.istate)cycle
                      contri=aijmu(jstate,istate)*aijmu(istate,istate)
      $                    /deno(istate)
                      e2(jstate,istate)=e2(jstate,istate)-contri
-                     contri=aijmu(istate,jstate)*aijmu(jstate,jstate)
-     $                    /deno(jstate)
-                     e2(istate,jstate)=e2(istate,jstate)-contri
                   enddo
-               enddo
             enddo
  2       enddo
  1    enddo
@@ -3087,7 +2935,8 @@ c--------------------------------
 c-----------------------------------------------------------
       subroutine e2p2contp(e2,psi2,coef,w,daa,daaoff,nact,ncore,norb
      $     ,nnew,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
-     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec)
+     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec
+     &     ,istate)
       use info_symmetry
       ! Leon
       ! Cholesky stuff as in e2p2cont()
@@ -3101,7 +2950,8 @@ c-----------------------------------------------------------
       integer a,ap,b,bp,ab,abp
       allocatable s(:,:,:,:),aijmu(:,:),deno(:),traint(:,:,:)
       ! Leon -- for Cholesky
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 Cele QD_new
       real *8 epsnew(norb,metat)
       integer nsym,nord_nev2mol(norb),nord_mol2nev(norb)
@@ -3133,25 +2983,25 @@ c---costruzione matrice S
                   do bp=ap,nact
                      abp=abp+1
                      ijcou=0
-                     do istate=1,metat
                         coe=coef(abp,mu,istate)
                         if(coe.ne.0.d0)s(ab,mu,istate,istate)=s(ab,mu
      $                       ,istate,istate)+0.5d0*(daa(istate,ap,bp,a,b
      $                       )+daa(istate,ap,bp,b,a))*coe
-                        do jstate=1,istate
+                        do jstate=1,metat
                            if(jstate.eq.istate)cycle
-                           ijcou=ijcou+1
+                           if(jstate.lt.istate)then
+                              ijcou=(istate-1)*(istate-2)/2+jstate
+                              ro=0.5d0*(daaoff(ijcou,b,a,bp,ap)
+     $                          +daaoff(ijcou,b,a,ap,bp))
+                           else
+                              ijcou=(jstate-1)*(jstate-2)/2+istate
+                              ro=0.5d0*(daaoff(ijcou,bp,ap,b,a)
+     $                          +daaoff(ijcou,ap,bp,b,a))
+                           endif
                            coe=coef(abp,mu,istate)
                            if(coe.ne.0.d0)s(ab,mu,jstate,istate)=s(ab,mu
-     $                          ,jstate,istate)+0.5d0*(daaoff(ijcou,b
-     $                          ,a,bp,ap)+daaoff(ijcou,b,a,ap,bp))*coe
-                           coe=coef(abp,mu,jstate)
-                           if(coe.ne.0.d0)s(ab,mu,istate,jstate)=s(ab,mu
-     $                          ,istate,jstate)+0.5d0*(daaoff(ijcou,bp
-     $                          ,ap,b,a)+daaoff(ijcou,ap,bp,b,a))
-     $                          *coe
+     $                          ,jstate,istate)+ro*coe
                         enddo
-                     enddo
                   enddo
                enddo
             enddo
@@ -3161,8 +3011,8 @@ c--------------------------------
       do i=1,ncore
         if (zgel(i)) goto 1
          if (Do_Cholesky) then
-           call newint_iajb_cholesky(cho_reduced_vec,traint,
-     &    metat,i,i,ncore,nact,nvirt)
+           call newint_iajb_cholesky(cho_reduced_vec,traint(:,:,istate),
+     &    i,i,ncore,nact,nvirt)
          end if
          do mu=1,nn1
             call zeroe(aijmu,metat**2)
@@ -3170,7 +3020,6 @@ c--------------------------------
             do a=1,nact
                ab=ab+1
                ias=itsym(a+ncore)
-               do istate=1,metat
                 if (Do_Cholesky) then
                   dint = traint(a,a,istate)
                 else
@@ -3185,12 +3034,10 @@ c--------------------------------
                      aijmu(jstate,istate)=aijmu(jstate,istate)+
      $                    dint*s(ab,mu,jstate,istate)
                   enddo
-               enddo
                do b=a+1,nact
                   ab=ab+1
                   ibs=itsym(b+ncore)
                   if (ias.ne.ibs) cycle
-                  do istate=1,metat
                     if(Do_Cholesky) then
                       dint = traint(b,a,istate)
                     else
@@ -3206,26 +3053,18 @@ c--------------------------------
                         aijmu(jstate,istate)=aijmu(jstate,istate)+
      $                       dint*s(ab,mu,jstate,istate)
                      enddo
-                  enddo
                enddo
             enddo
-            do istate=1,metat
                deno(istate)=w(mu,istate)-2.d0*epsnew(i,istate)
-            enddo
-            do istate=1,metat
                contri=aijmu(istate,istate)**2/deno(istate)
                e2(istate,istate)=e2(istate,istate)-contri
                psi2(istate)=psi2(istate)+contri/deno(istate)
-               do jstate=1,istate
+               do jstate=1,metat
                   if(jstate.eq.istate)cycle
                   contri=aijmu(jstate,istate)*aijmu(istate,istate)
      $                 /deno(istate)
                   e2(jstate,istate)=e2(jstate,istate)-contri
-                  contri=aijmu(istate,jstate)*aijmu(jstate,jstate)
-     $                 /deno(jstate)
-                  e2(istate,jstate)=e2(istate,jstate)-contri
                enddo
-            enddo
          enddo
  1    enddo
       if(allocated(traint))deallocate(traint)
@@ -3237,7 +3076,7 @@ c----------------------------------------------------------------
       subroutine e2p1cont(e2,psi2,coef,w,da,daoff,epsnew,uv,uc,
      *   factor,nact,ncore,nvirt,norb,nnew,metat,nmo,nc,na,nv,nbe,
      *   ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,zgel,
-     *   cvirt,cho_reduced_vec)
+     *   cvirt,cho_reduced_vec,istate)
       use info_symmetry
 ! Leon -- for Cholesky
       use nevpt2_cfg, only : Do_Cholesky
@@ -3258,7 +3097,8 @@ Cele QD_new
       allocatable traint(:,:,:),traintk(:,:,:),dumai(:,:,:)
 
 ! Leon -- for Cholesky
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 !
       nvirt=norb-nact-ncore
       allocate (traint(nact,nvirt,metat))
@@ -3277,7 +3117,6 @@ c---  costruzione matrice S
        do mu=1,nact
         do ap=1,nact
          ijcou=0
-         do istate=1,metat
           if(ap.ne.a)then
              ro=-da(istate,ap,a)
           else
@@ -3286,16 +3125,19 @@ c---  costruzione matrice S
           coe=coef(ap,mu,istate)
           if(coe.ne.0.d0)s(a,mu,istate,istate)=s(a,mu,istate
      $         ,istate)+ro*coe
-          do jstate=1,istate-1
-           ijcou=ijcou+1
+          do jstate=1,metat
+           if(jstate.eq.istate)cycle
+           if(jstate.lt.istate)then
+             ijcou=(istate-1)*(istate-2)/2+jstate
+             ro=-daoff(ijcou,a,ap)
+           else
+             ijcou=(jstate-1)*(jstate-2)/2+istate
+             ro=-daoff(ijcou,ap,a)
+           endif
            coe=coef(ap,mu,istate)
            if(coe.ne.0.d0)s(a,mu,jstate,istate)=s(a,mu,jstate
-     $          ,istate)-daoff(ijcou,a,ap)*coe
-           coe=coef(ap,mu,jstate)
-           if(coe.ne.0.d0)s(a,mu,istate,jstate)=s(a,mu,istate
-     $          ,jstate)-daoff(ijcou,ap,a)*coe
+     $          ,istate)+ro*coe
           enddo
-         enddo
         enddo
        enddo
       enddo
@@ -3315,11 +3157,13 @@ c--------------------------------
         ! but traints are reused from v_xx()
 
           if (Do_Cholesky) then
-            call newint_airj_cholesky(cho_reduced_vec,traint,
-     &        metat,i,j,ncore,nact,nvirt)
+            call newint_airj_cholesky(cho_reduced_vec,
+     &        traint(:,:,istate),
+     &        i,j,ncore,nact,nvirt)
             if (j.ne.i)
-     &        call newint_airj_cholesky(cho_reduced_vec,traintk,
-     &          metat,j,i,ncore,nact,nvirt)
+     &        call newint_airj_cholesky(cho_reduced_vec,
+     &          traintk(:,:,istate),
+     &          j,i,ncore,nact,nvirt)
           else
               call newint_airjnew(metat,norb,ncore,nact,nvirt,
      *          factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -3343,14 +3187,7 @@ c--------------------------------
           ias=itsym(a+ncore)
           if (ias.ne.irijs) cycle
            if(i.ne.j)then
-              do istate=1,metat
-c      call newint_airj(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,a,i,irv,j,istate,traint)
           contj=traint(a,irv,istate)
-c      call newint_airj(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,a,j,irv,i,istate,traint1)
           contk=traintk(a,irv,istate)
               cint=contj+contk
               bint=contj-contk
@@ -3365,12 +3202,7 @@ c     *   nord_nev2mol,nord_mol2nev,a,j,irv,i,istate,traint1)
                 rjimup(jstate,istate)=rjimup(jstate,istate
      $               )+bint*s(a,mu,jstate,istate)
                enddo
-              enddo
            else
-              do istate=1,metat
-c      call newint_airj(metat,norb,ncore,nact,nvirt,
-c     *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-c     *   nord_nev2mol,nord_mol2nev,a,i,irv,i,istate,traint)
               cint=traint(a,irv,istate)
                rjimu(istate,istate)=rjimu(istate,istate)
      $              +cint*s(a,mu,istate,istate)
@@ -3379,45 +3211,33 @@ c     *   nord_nev2mol,nord_mol2nev,a,i,irv,i,istate,traint)
                 rjimu(jstate,istate)=rjimu(jstate,istate)
      $               +cint*s(a,mu,jstate,istate)
                enddo
-              enddo
            endif
           enddo !do a
-          do istate=1,metat
            deno(istate)=w(mu,istate)+epsnew(ir,istate)-
      *                  epsnew(i,istate)-epsnew(j,istate)
            if(abs(deno(istate)).lt.denomin)denomin=abs(deno(istate))
-          enddo
           if(i.ne.j)then
-             do istate=1,metat
               contri=(0.5d0*rjimu(istate,istate)**2+1.5d0
      $             *rjimup(istate,istate)**2)/deno(istate)
               e2(istate,istate)=e2(istate,istate)-contri
               psi2(istate)=psi2(istate)+contri/deno(istate)
-              do jstate=1,istate-1
+              do jstate=1,metat
+               if(jstate.eq.istate)cycle
                contri=(0.5d0*rjimu(jstate,istate)*rjimu(istate
      $              ,istate)+1.5d0*rjimup(jstate,istate)
      $              *rjimup(istate,istate))/deno(istate)
                e2(jstate,istate)=e2(jstate,istate)-contri
-               contri=(0.5d0*rjimu(istate,jstate)*rjimu(jstate
-     $              ,jstate)+1.5d0*rjimup(istate,jstate)
-     $              *rjimup(jstate,jstate))/deno(jstate)
-               e2(istate,jstate)=e2(istate,jstate)-contri
               enddo
-             enddo
           else
-             do istate=1,metat
               contri=rjimu(istate,istate)**2/deno(istate)
               e2(istate,istate)=e2(istate,istate)-contri
               psi2(istate)=psi2(istate)+contri/deno(istate)
-              do jstate=1,istate-1
+              do jstate=1,metat
+               if(jstate.eq.istate)cycle
                contri=rjimu(jstate,istate)*rjimu(istate
      $              ,istate)/deno(istate)
                e2(jstate,istate)=e2(jstate,istate)-contri
-               contri=rjimu(istate,jstate)*rjimu(jstate
-     $              ,jstate)/deno(jstate)
-               e2(istate,jstate)=e2(istate,jstate)-contri
               enddo
-             enddo
           endif
          enddo
  3      enddo
@@ -3436,7 +3256,7 @@ c------------------------------------------------------
       subroutine v2mod(ncore,nact,gkp2aa,daat,daaoff,daoff,
      *   epsnew,uv,uc,
      *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     *   cho_reduced_vec)
+     *   cho_reduced_vec,istate)
       use info_symmetry
       ! Leon -- for Cholesky
       use nevpt2_cfg, only : Do_Cholesky, no_pc, MultGroup, print_level
@@ -3470,7 +3290,8 @@ c------------------------------------------------------
       allocatable daatoff(:,:,:,:,:)
       allocatable dn(:,:),dk(:),den(:),e2(:,:),psi2(:)
       ! Leon -- for Cholesky
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 Cele QD_new
       real *8 epsnew(norb,metat)
       integer nsym,nord_nev2mol(norb),nord_mol2nev(norb)
@@ -3521,20 +3342,17 @@ c
 c     Si inizia il ciclo sugli attivi
 c
 
-      do istate=1,metat
          dn(istate,istate)=0.d0
          dk(istate)=0.d0
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
-            dn(istate,jstate)=0.d0
             dn(jstate,istate)=0.d0
          enddo
-      enddo
 
       ijcou=0
       if (Do_Cholesky) then
-        call newint_iajb_cholesky(cho_reduced_vec,traint,
-     &    metat,ir,is,ncore,nact,nvirt)
+        call newint_iajb_cholesky(cho_reduced_vec,traint(:,:,istate),
+     &    ir,is,ncore,nact,nvirt)
       end if
       do ic=ncore+1,ncore+nact
          ica=ic-ncore
@@ -3548,11 +3366,9 @@ c
             if (Do_Cholesky) then
               dint2(:)=traint(ica,ida,:)
             else
-              do istate=1,metat
       call newint_iajb(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *   nord_nev2mol,nord_mol2nev,ir,ica,is,ida,istate,dint2(istate))
-              enddo
             end if
             do icp=ncore+1,ncore+nact
                icpa=icp-ncore
@@ -3563,7 +3379,6 @@ c
                   icpdpsy=its(icpsy,idpsy)
                   isimm=its(icpdpsy,irssy)
                   if (isimm.ne.1) goto 1120
-                  do istate=1,metat
                      dum=daat(istate,icpa,idpa,ica,ida)
                      dumk=gkp2aa(istate,icpa,idpa,ica,ida)
                      ! indentation nightmare!!!!!
@@ -3583,28 +3398,29 @@ c
                      endif
                     dn(istate,istate)=dn(istate,istate)+cint(istate)*dum
                      dk(istate)=dk(istate)+cint(istate)*dumk
-                     do jstate=1,istate-1
+                     do jstate=1,metat
+                     if(jstate.eq.istate)cycle
+                     if(jstate.lt.istate)then
                      ijcou=(istate-1)*(istate-2)/2+jstate
                         dum=ro2toff(icpa,idpa,ica,ida,daaoff,daoff,nact
      $                       ,ijcou,ncoppie)
                         if(ir.eq.is)dum=dum+ro2toff(idpa,icpa,ica
      $                       ,ida,daaoff,daoff,nact,ijcou,ncoppie)
-                        dn(jstate,istate)=dn(jstate,istate)+
-     *                                    dum*cint(istate)
+                     else
+                     ijcou=(jstate-1)*(jstate-2)/2+istate
                         dum=ro2toff(ica,ida,icpa,idpa,daaoff,daoff,nact
      $                       ,ijcou,ncoppie)
                         if(ir.eq.is)dum=dum+ro2toff(ica,ida,idpa
      $                       ,icpa,daaoff,daoff,nact,ijcou,ncoppie)
-                        dn(istate,jstate)=dn(istate,jstate)+
-     $                                    dum*cint(jstate)
+                     endif
+                        dn(jstate,istate)=dn(jstate,istate)+
+     *                                    dum*cint(istate)
                      enddo
-                  enddo
  1120          enddo
             enddo
  1121    enddo
       enddo
 
-      do istate=1,metat
          den(istate)=0.d0
          if(abs(dn(istate,istate)).ge.1.d-14)then
             epsimk=dk(istate)/dn(istate,istate)
@@ -3616,21 +3432,14 @@ c
             e2mpp(4,istate)=e2mpp(4,istate)+co
             psimpp(4,istate)=psimpp(4,istate)+con
          endif
-      enddo
-      do istate=1,metat
          e2(istate,istate)=e2mpp(4,istate)
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
             if(den(istate).ne.0.d0)e2mp(jstate,istate)=e2mp(jstate
      $           ,istate)+dn(jstate,istate)/den(istate)
-            if(den(jstate).ne.0.d0)e2mp(istate,jstate)=e2mp(istate
-     $           ,jstate)+dn(istate,jstate)/den(jstate)
             if(den(istate).ne.0.d0)e2(jstate,istate)=e2(jstate
      $           ,istate)+dn(jstate,istate)/den(istate)
-            if(den(jstate).ne.0.d0)e2(istate,jstate)=e2(istate
-     $           ,jstate)+dn(istate,jstate)/den(jstate)
          enddo
-      enddo
 
  1700 enddo
  1800 enddo
@@ -3638,19 +3447,15 @@ c
       write (6,*)
       write (6,*)' Contribution of V(+2) to Heff (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(+2) to the norm (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psimpp(4,istate)
-      enddo
       end if
       deallocate(cint)
       deallocate(dint1)
@@ -3680,7 +3485,6 @@ c---Partially contracted NEV-PT-----------------------------------
          enddo
       enddo
 c---------------
-      do istate=1,metat
          call fillcm2(s,daat,nact,istate,metat)
          call fillcm2(coef(1,1,istate),gkp2aa,nact,istate,metat)
       nnew=nact**2
@@ -3750,11 +3554,11 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
       call zeroe(coef(1,1,istate),nact3*nact3)
       call copia(coef(1,1,istate),s,nact3,nnew)
       deallocate(caux)
-      enddo
       deallocate(s)
-      call e2p2cont(e2,psi2,coef,w,daat,daatoff,nact,ncore,norb
-     $     ,nnew,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
-     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec)
+      call e2p2cont(e2,psi2,coef,w,daat,daatoff,nact,ncore,norb,
+     $     nnew,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
+     *     ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec,
+     &     istate)
       if(zverbose)then
          print*,'Partially contracted contribution: class (+2): i.ne.j'
          print '(a,(5f20.14))','E2=',(e2(istate,istate),istate=1
@@ -3769,7 +3573,6 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
       allocate(coef(nact2,nact2,metat))
       allocate(w(nact2,metat))
       allocate(work(1:3*nact2))
-      do istate=1,metat
          call fillcm2p(s,daat,nact,istate,metat)
          call fillcm2p(coef(1,1,istate),gkp2aa,nact,istate,metat)
          nact3=nact2
@@ -3838,44 +3641,37 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
          call zeroe(coef(1,1,istate),nact2*nact2)
          call copia(coef(1,1,istate),s,nact3,nnew)
          deallocate(caux)
-      enddo
-      call e2p2contp(e2,psi2,coef,w,daat,daatoff,nact,ncore,norb
-     $     ,nnew,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
-     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec)
+      call e2p2contp(e2,psi2,coef,w,daat,daatoff,nact,ncore,norb,
+     $     nnew,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
+     *     ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec,
+     &     istate)
       if(zverbose)then
          print*,'Partially contracted contribution: class (-1): i.eq.j'
          print '(a,(5f20.14))','E2=',(e2(istate,istate),istate=1
      $        ,metat)
          print '(a,(5f20.14))','psi2=',(psi2(istate),istate=1,metat)
       endif
-      do istate=1,metat
          e2enp(4,istate)=e2enp(4,istate)+e2(istate,istate)
          psienep(4,istate)=psienep(4,istate)+psi2(istate)
          psien(istate)=psien(istate)+psienep(4,istate)
          e2en(istate,istate)=e2en(istate,istate)+e2(istate,istate)
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
-            e2en(istate,jstate)=e2en(istate,jstate)+e2(istate,jstate)
             e2en(jstate,istate)=e2en(jstate,istate)+e2(jstate,istate)
          enddo
-      enddo
       if(print_level > 0)then
       write (6,*)
       write (6,*)' Contribution of V(+2) to Heff (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(+2) to the norm (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psienep(4,istate)
-      enddo
       end if
       call flush(6)
       deallocate(coef)
@@ -3888,7 +3684,7 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
 c----------------------------------------------------------------
       subroutine vm2mod(ncore,nact,daa,daaoff,gkm2aa,epsnew,uv,uc,
      *   nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,
-     *   cho_reduced_vec)
+     *   cho_reduced_vec,istate)
       use info_symmetry
       ! Leon -- for Cholesky
       use nevpt2_cfg, only : Do_Cholesky, no_pc, MultGroup, print_level
@@ -3921,7 +3717,8 @@ c----------------------------------------------------------------
       allocatable dn(:,:),dk(:),den(:),e2(:,:),psi2(:)
 
       ! Leon -- Cholesky
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 Cele QD_new
       real *8 epsnew(norb,metat)
       integer nsym,nord_nev2mol(norb),nord_mol2nev(norb)
@@ -3959,20 +3756,17 @@ c      write (6,*) 'Eccitazione con gli indici',' -> ',ir,is
 c
 c     Si inizia il ciclo sugli attivi
 c
-      do istate=1,metat
          dn(istate,istate)=0.d0
          dk(istate)=0.d0
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
-            dn(istate,jstate)=0.d0
             dn(jstate,istate)=0.d0
          enddo
-      enddo
 
       if(Do_Cholesky) then
        ! TODO: Maybe batching the integrals over virtuals instead of actives would bring better parallelisation
-       call newint_rasb_cholesky(cho_reduced_vec,dint1,
-     &    metat,is,ir,ncore,nact,nvirt)
+       call newint_rasb_cholesky(cho_reduced_vec,dint1(:,:,istate),
+     &    is,ir,ncore,nact,nvirt)
       else
         call newint_rs_ab(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -3998,7 +3792,6 @@ c
                   isimm=its(icpdpsy,irssy)
                   if (isimm.ne.1) goto 1120
                   ijcou=0
-                  do istate=1,metat
                      dum=daa(istate,icpa,idpa,ica,ida)
                      dumk=gkm2aa(istate,icpa,idpa,ica,ida)
                      cint(istate)=dint1(ica,ida,istate)*
@@ -4010,26 +3803,27 @@ c
                      endif
                     dn(istate,istate)=dn(istate,istate)+dum*cint(istate)
                      dk(istate)=dk(istate)+dumk*cint(istate)
-                     do jstate=1,istate-1
-                        ijcou=ijcou+1
+                     do jstate=1,metat
+                        if(jstate.eq.istate)cycle
+                        if(jstate.lt.istate)then
+                        ijcou=(istate-1)*(istate-2)/2+jstate
                         dum=daaoff(ijcou,ica,ida,icpa,idpa)
                         if(ir.eq.is)dum=dum+daaoff(ijcou,ica,ida,idpa
      $                       ,icpa)
-                        dn(jstate,istate)=dn(jstate,istate)+
-     *                                    dum*cint(istate)
+                        else
+                        ijcou=(jstate-1)*(jstate-2)/2+istate
                         dum=daaoff(ijcou,icpa,idpa,ica,ida)
                         if(ir.eq.is)dum=dum+daaoff(ijcou,idpa,icpa,ica
      $                       ,ida)
-                        dn(istate,jstate)=dn(istate,jstate)+
-     *                                    dum*cint(jstate)
+                        endif
+                        dn(jstate,istate)=dn(jstate,istate)+
+     *                                    dum*cint(istate)
                      enddo
-                  enddo
  1120          enddo
             enddo
  1121    enddo
       enddo
 
-      do istate=1,metat
          den(istate)=0.d0
          if(abs(dn(istate,istate)).ge.1.d-14)then
             epsimk=-dk(istate)/dn(istate,istate)
@@ -4042,21 +3836,14 @@ c
             e2mpp(5,istate)=e2mpp(5,istate)+co
             psimpp(5,istate)=psimpp(5,istate)+con
          endif
-      enddo
-      do istate=1,metat
          e2(istate,istate)=e2mpp(5,istate)
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
             if(den(istate).ne.0.d0)e2mp(jstate,istate)=e2mp(jstate
      $           ,istate)+dn(jstate,istate)/den(istate)
-            if(den(jstate).ne.0.d0)e2mp(istate,jstate)=e2mp(istate
-     $           ,jstate)+dn(istate,jstate)/den(jstate)
             if(den(istate).ne.0.d0)e2(jstate,istate)=e2(jstate
      $           ,istate)+dn(jstate,istate)/den(istate)
-            if(den(jstate).ne.0.d0)e2(istate,jstate)=e2(istate
-     $           ,jstate)+dn(istate,jstate)/den(jstate)
          enddo
-      enddo
 
  1700 enddo
  1800 enddo
@@ -4064,19 +3851,15 @@ c
       write (6,*)
       write (6,*) ' Contribution of V(-2) to Heff (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(-2) to the norm (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psimpp(5,istate)
-      enddo
       end if
       deallocate(cint)
       deallocate(dint1)
@@ -4089,7 +3872,6 @@ c---Partially contracted NEV-PT-----------------------------------
       allocate(coef(nact**2,nact**2,metat))
       allocate(w(nact**2,metat))
       allocate(work(3*nact**2))
-      do istate=1,metat
          call fillcm2(s,daa,nact,istate,metat)
          call fillcm2(coef(1,1,istate),gkm2aa,nact,istate,metat)
          nnew=nact**2
@@ -4159,12 +3941,11 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
          call copia(coef(1,1,istate),s,nact3,nnew)
 c     stop 'vm2mod'
          deallocate(caux)
-        enddo
         deallocate(s)
       call e2m2cont(e2,psi2,coef,w,daa,daaoff,nact,ncore,norb,nnew
      $     ,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
      *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,
-     *      cho_reduced_vec)
+     *      cho_reduced_vec,istate)
       if(zverbose)then
          print*,'Partially contracted contribution: class (-2): r.ne.s'
          print '(a,(5f20.14))','E2=',(e2(istate,istate),istate=1
@@ -4180,7 +3961,6 @@ c     stop 'vm2mod'
       allocate(coef(nact2,nact2,metat))
       allocate(w(nact2,metat))
       allocate(work(1:3*nact2))
-      do istate=1,metat
          call fillcm2p(s,daa,nact,istate,metat)
          call fillcm2p(coef(1,1,istate),gkm2aa,nact,istate,metat)
          nact3=nact2
@@ -4249,45 +4029,38 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
          call zeroe(coef(1,1,istate),nact3*nact3)
          call copia(coef(1,1,istate),s,nact3,nnew)
          deallocate(caux)
-      enddo
       deallocate(s)
-      call e2m2contp(e2,psi2,coef,w,daa,daaoff,nact,ncore,norb,nnew
-     $     ,zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
-     *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec)
+      call e2m2contp(e2,psi2,coef,w,daa,daaoff,nact,ncore,norb,nnew,
+     $     zgel,metat,epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
+     *     ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,cho_reduced_vec,
+     &     istate)
       if(zverbose)then
          print*,'Partially contracted contribution: class (-2): r.eq.s'
          print '(a,(5f20.14))','E2=',(e2(istate,istate),istate=1
      $        ,metat)
          print '(a,(5f20.14))','psi2=',(psi2(istate),istate=1,metat)
       endif
-      do istate=1,metat
          e2enp(5,istate)=e2enp(5,istate)+e2(istate,istate)
          psienep(5,istate)=psienep(5,istate)+psi2(istate)
          psien(istate)=psien(istate)+psienep(5,istate)
          e2en(istate,istate)=e2en(istate,istate)+e2(istate,istate)
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
-            e2en(istate,jstate)=e2en(istate,jstate)+e2(istate,jstate)
             e2en(jstate,istate)=e2en(jstate,istate)+e2(jstate,istate)
          enddo
-      enddo
       if(print_level > 0)then
       write (6,*)
       write (6,*) ' Contribution of V(-2) to Heff (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(-2) to the norm (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psienep(5,istate)
-      enddo
       end if
       call flush(6)
       deallocate(coef)
@@ -4553,7 +4326,7 @@ c---------------------------------------------------------------
       subroutine v0pmod(ncore,nact,nvirt,da,daa,daoff,daaoff,gk0pa,
      *    gk0pd,gk0pf,epsnew,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *    nord_nev2mol,nord_mol2nev,cvirt,ccore,compute_rho1st,
-     *    cho_reduced_vec)
+     *    cho_reduced_vec,istate)
 
       use info_symmetry
       ! Leon -- for Cholesky
@@ -4601,7 +4374,8 @@ Cele QD_new
       allocatable djm(:,:,:),dkm(:,:,:)
 
       ! Leon -- Cholesky
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
       !> statement function
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
@@ -4610,8 +4384,8 @@ Cele QD_new
 ! inline (statement) functions
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &   indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &   indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
       nvirt=norb-nact-ncore
 
 
@@ -4635,17 +4409,14 @@ c---- building Dyall's h eff----------
          do ir=ncore+nact+1,norb
          irv=ir-ncore-nact
          jkr=indice(ik,ir)
-            do istate=1,metat
       call newint_ir(metat,norb,ncore,nact,nevpt_ijkl%oneint,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *   nord_nev2mol,nord_mol2nev,ik,irv,istate,traint)
             heffd(jkr,istate)=traint
             do j=1,ncore
-c      write (6,*) 'vop',ik,ir,istate,j
-c      call flush(6)
       if (Do_Cholesky) then
-        traint = cholesky_traint(j,j,ik,ir,istate)
-        traint1 = cholesky_traint(j,ik,j,ir,istate)
+        traint = cholesky_traint(j,j,ik,ir)
+        traint1 = cholesky_traint(j,ik,j,ir)
       else
       call newint_ijkr(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -4656,7 +4427,6 @@ c      call flush(6)
       end if
             oint=2.d0*traint-traint1
              heffd(jkr,istate)=heffd(jkr,istate)+oint
-            enddo
             enddo
          enddo
       enddo
@@ -4683,23 +4453,20 @@ c      call flush(6)
 c
 c     Si inizia il ciclo sugli attivi
 c
-            do istate=1,metat
                dn(istate,istate)=0.d0
                dkoo(istate)=0.d0
-               do jstate=1,istate
+               do jstate=1,metat
                   if(jstate.eq.istate)cycle
-                  dn(istate,jstate)=0.d0
                   dn(jstate,istate)=0.d0
                enddo
-            enddo
 
 c      write (6,*) 'Entro J'
 c      call flush(6)
        if (Do_Cholesky) then
-         call newint_irab_cholesky(cho_reduced_vec,djm,
-     &    metat,ii,ir,ncore,nact,nvirt)
-         call newint_iarb_cholesky(cho_reduced_vec,dkm,
-     &    metat,ii,ir,ncore,nact,nvirt)
+         call newint_irab_cholesky(cho_reduced_vec,djm(:,:,istate),
+     &    ii,ir,ncore,nact,nvirt)
+         call newint_iarb_cholesky(cho_reduced_vec,dkm(:,:,istate),
+     &    ii,ir,ncore,nact,nvirt)
        else
         call newint_ir_ab_J(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -4731,7 +4498,6 @@ c
                         iabps=its(iaps,ibps)
                         if (its(iabps,iirs).ne.1) goto 1120
 
-                        do istate=1,metat
                         dj=djm(iaa,iba,istate)
                         djp=djm(iapa,ibpa,istate)
                         dk=dkm(iaa,iba,istate)
@@ -4771,28 +4537,23 @@ c
                               dn(jstate,istate)=dn(jstate,istate)+dint1
      $                             *dum1+dint2*dum2
                            enddo
-                        enddo
 
  1120                enddo
                   enddo
  1121          enddo
             enddo
 
-            do istate=1,metat
                dummy(istate,istate)=0.d0
                dummyk(istate)=0.d0
-               do jstate=1,istate
+               do jstate=1,metat
                   if(jstate.eq.istate)cycle
-                  dummy(istate,jstate)=0.d0
                   dummy(jstate,istate)=0.d0
                enddo
-            enddo
 
             do ia=ncore+1,ncore+nact
                iaa=ia-ncore
                do ib=ncore+1,ncore+nact
                   iba=ib-ncore
-                  do istate=1,metat
                   dint1=2.d0*djm(iaa,iba,istate)-dkm(iaa,iba,istate)
                   dint2=dint1*0.5d0
                      dum=da(istate,iba,iaa)
@@ -4811,27 +4572,21 @@ c
                      enddo
                      dumk=gk0pf(istate,iaa,iba)
                      dummyk(istate)=dummyk(istate)+dumk*dint2
-                  enddo
                enddo
             enddo
 
             iir=indice(ir,ii)
             ijcou=0
-            do istate=1,metat
               dn(istate,istate)=dn(istate,istate)+2.d0*heffd(iir,istate)
      $              *dummy(istate,istate)+2.d0*heffd(iir,istate)**2
               dkoo(istate)=dkoo(istate)+heffd(iir,istate)*dummyk(istate)
-               do jstate=1,istate-1
-                  ijcou=ijcou+1
+               do jstate=1,metat
+                  if(jstate.eq.istate)cycle
                   dn(jstate,istate)=dn(jstate,istate)+heffd(iir,istate)
      $                 *dummy(jstate,istate)
-                  dn(istate,jstate)=dn(istate,jstate)+heffd(iir,jstate)
-     $                 *dummy(istate,jstate)
                enddo
-            enddo
 
 
-            do istate=1,metat
                den(istate)=0.d0
                if(abs(dn(istate,istate)).gt.1.d-14)then
                   epsimk=dkoo(istate)/dn(istate,istate)
@@ -4844,40 +4599,29 @@ c
                   e2mpp(8,istate)=e2mpp(8,istate)+co
                   psimpp(8,istate)=psimpp(8,istate)+con
                endif
-            enddo
-            do istate=1,metat
                e2(istate,istate)=e2mpp(8,istate)
-               do jstate=1,istate
+               do jstate=1,metat
                   if(jstate.eq.istate)cycle
                   if(den(istate).ne.0.d0)e2mp(jstate,istate)=e2mp(jstate
      $                 ,istate)+dn(jstate,istate)/den(istate)
-                  if(den(jstate).ne.0.d0)e2mp(istate,jstate)=e2mp(istate
-     $                 ,jstate)+dn(istate,jstate)/den(jstate)
                   if(den(istate).ne.0.d0)e2(jstate,istate)=e2(jstate
      $                 ,istate)+dn(jstate,istate)/den(istate)
-                  if(den(jstate).ne.0.d0)e2(istate,jstate)=e2(istate
-     $                 ,jstate)+dn(istate,jstate)/den(jstate)
                enddo
-            enddo
  1700    enddo
  1800 enddo
       if(print_level > 0)then
       write (6,*)
       write (6,*) ' Contribution of V(0)'' to Heff (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(0)'' to the norm (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psimpp(8,istate)
-      enddo
       end if
       deallocate(djm)
       deallocate(dkm)
@@ -4893,7 +4637,6 @@ c---  Partially contracted NEV-PT
       allocate(work(3*nact2))
       call zeroe(w,nact2*metat)
       call zeroe(coef,nact2*nact2*metat)
-      do istate=1,metat
          call fillc0p(s,coef(1,1,istate),gk0pa,gk0pd,daa,da,nact,istate
      $        ,metat)
          info = 0
@@ -4962,41 +4705,33 @@ c--   metto in coef i coefficienti trasformati (for clarity sake)
          call copia(coef(1,1,istate),s,nact2,nnew)
 c--   inizio il calcolo perturbativo
          deallocate(caux)
-      enddo
       deallocate(s)
       call e20pcont(e2,psi2,heffd,coef,w,daa,da,daaoff,daoff
      $     ,nact,ncore,nvirt,norb,nnew,zgel,metat,
      *      epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
      *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,
-     *      cvirt,ccore,compute_rho1st,cho_reduced_vec)
-      do istate=1,metat
+     *      cvirt,ccore,compute_rho1st,cho_reduced_vec,istate)
          e2enp(8,istate)=e2(istate,istate)
          psienep(8,istate)=psi2(istate)
          psien(istate)=psien(istate)+psienep(8,istate)
          e2en(istate,istate)=e2en(istate,istate)+e2(istate,istate)
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
-            e2en(istate,jstate)=e2en(istate,jstate)+e2(istate,jstate)
             e2en(jstate,istate)=e2en(jstate,istate)+e2(jstate,istate)
          enddo
-      enddo
       if(print_level > 0)then
       write (6,*)
       write (6,*) ' Contribution of V(0)'' to Heff (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(0)'' to the norm (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psienep(8,istate)
-      enddo
       end if
       deallocate(coef)
       deallocate(w)
@@ -5037,7 +4772,7 @@ c----------------------------------------------------------------
      $     ,nact,ncore,nvirt,norb,nnew,zgel,metat,
      *      epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
      *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,
-     *      cvirt,ccore,compute_rho1st,cho_reduced_vec)
+     *      cvirt,ccore,compute_rho1st,cho_reduced_vec,istate)
 
       use info_symmetry
       ! Leon -- for Cholesky
@@ -5056,7 +4791,8 @@ c----------------------------------------------------------------
      *     heffd(norb*(norb+1)/2,metat),
      $     zgel(*),daaoff(metat*(metat-1)/2,nact,nact,nact,nact),
      $     daoff(metat*(metat-1)/2,nact,nact)
-      real*8 cho_reduced_vec(nchovec,nlvec,metat) ! where to store the vectors
+      real*8 cho_reduced_vec(nchovec,nlvec) ! where to store the vectors
+      integer istate
 Cele QD_new
       real *8 epsnew(norb,metat),cvirt(nvirt,nvirt,metat),
      *        ccore(ncore,ncore,metat)
@@ -5106,7 +4842,6 @@ c--e il vettore vaux(mu) se si vuole la rho perturbata al primo ordine
                do ibp=1,nact
                   iabp=iabp+1
                   ijcou=0
-                  do istate=1,metat
                      val=ee2(ibp,iap,ia,ib,daa,da,nact,istate,metat)
                      val2=-daa(istate,iap,ib,ia,ibp)
                      if(iap.eq.ia)val2=val2+2.d0*da(istate,ib,ibp)
@@ -5124,25 +4859,23 @@ c--e il vettore vaux(mu) se si vuole la rho perturbata al primo ordine
      &                                        -coef(iab+nn,j,istate))
                        end do
                      end if
-                     do jstate=1,istate
+                     do jstate=1,metat
                         if(jstate.eq.istate)cycle
-                        ijcou=ijcou+1
-                        val=ee2(ibp,iap,ia,ib,daaoff,daoff,nact,ijcou
-     $                       ,ncoppie)
-                        val2=-daaoff(ijcou,iap,ib,ia,ibp)
-                        if(iap.eq.ia)val2=val2+2.d0*daoff(ijcou,ib
-     $                       ,ibp)
-                        call daxpy(nn2,val,coef(iabp,1,jstate),nn2
-     $                       ,s(iab,1,istate,jstate),nn)
-                        call daxpy(nn2,val,coef(iabp+nn,1,jstate),nn2
-     $                       ,sp(iab,1,istate,jstate),nn)
-                        call daxpy(nn2,val2,coef(iabp+nn,1,jstate),nn2
-     $                       ,spp(iab,1,istate,jstate),nn)
-                        val=ee2(ib,ia,iap,ibp,daaoff,daoff,nact,ijcou
-     $                       ,ncoppie)
-                        val2=-daaoff(ijcou,ia,ibp,iap,ib)
-                        if(iap.eq.ia)val2=val2+2.d0*daoff(ijcou,ibp
-     $                       ,ib)
+                        if(jstate.lt.istate)then
+                           ijcou=(istate-1)*(istate-2)/2+jstate
+                           val=ee2(ib,ia,iap,ibp,daaoff,daoff,nact,
+     $                          ijcou,ncoppie)
+                           val2=-daaoff(ijcou,ia,ibp,iap,ib)
+                           if(iap.eq.ia)val2=val2+2.d0*daoff(ijcou,
+     $                          ibp,ib)
+                        else
+                           ijcou=(jstate-1)*(jstate-2)/2+istate
+                           val=ee2(ibp,iap,ia,ib,daaoff,daoff,nact,
+     $                          ijcou,ncoppie)
+                           val2=-daaoff(ijcou,iap,ib,ia,ibp)
+                           if(iap.eq.ia)val2=val2+2.d0*daoff(ijcou,
+     $                          ib,ibp)
+                        endif
                         call daxpy(nn2,val,coef(iabp,1,istate),nn2
      $                       ,s(iab,1,jstate,istate),nn)
                         call daxpy(nn2,val,coef(iabp+nn,1,istate),nn2
@@ -5150,7 +4883,6 @@ c--e il vettore vaux(mu) se si vuole la rho perturbata al primo ordine
                         call daxpy(nn2,val2,coef(iabp+nn,1,istate),nn2
      $                       ,spp(iab,1,jstate,istate),nn)
                      enddo
-                  enddo
                enddo
          enddo
       enddo
@@ -5166,10 +4898,10 @@ c--e il vettore vaux(mu) se si vuole la rho perturbata al primo ordine
             iirs=its(iis,irs)
             iir=indice(ir,i)
        if (Do_Cholesky) then
-         call newint_irab_cholesky(cho_reduced_vec,djm,
-     &    metat,i,ir,ncore,nact,nvirt)
-         call newint_iarb_cholesky(cho_reduced_vec,dkm,
-     &    metat,i,ir,ncore,nact,nvirt)
+         call newint_irab_cholesky(cho_reduced_vec,djm(:,:,istate),
+     &    i,ir,ncore,nact,nvirt)
+         call newint_iarb_cholesky(cho_reduced_vec,dkm(:,:,istate),
+     &    i,ir,ncore,nact,nvirt)
        else
          call newint_ir_ab_J(metat,norb,ncore,nact,nvirt,
      *    factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -5190,7 +4922,6 @@ c--e il vettore vaux(mu) se si vuole la rho perturbata al primo ordine
                      ibs=itsym(ib+ncore)
                      if (iiras.ne.ibs) cycle
 
-                     do istate=1,metat
                      hir(istate)=heffd(iir,istate)
                         raib(istate)=djm(ia,ib,istate)
                         rabi(istate)=dkm(ia,ib,istate)
@@ -5201,45 +4932,28 @@ c--e il vettore vaux(mu) se si vuole la rho perturbata al primo ordine
      *                raib(istate)*sp(iab,mu,istate,istate)+rabi(istate)
      *           *spp(iab,mu,istate,istate)-hir(istate)*da(istate,ib,ia)
      $                       *coef(iab+nn,mu,istate)
-                        do jstate=1,istate-1
-                        ijcou=(istate-1)*(istate-2)/2+jstate
+                        do jstate=1,metat
+                        if(jstate.eq.istate)cycle
+                        if(jstate.lt.istate)then
+                           ijcou=(istate-1)*(istate-2)/2+jstate
+                           ro=daoff(ijcou,ib,ia)
+                        else
+                           ijcou=(jstate-1)*(jstate-2)/2+istate
+                           ro=daoff(ijcou,ia,ib)
+                        endif
                            rimu(jstate,istate)=rimu(jstate,istate)+(2.d0
      $          *raib(istate)-rabi(istate))*s(iab,mu,jstate,istate)+2.d0
-     $                     *daoff(ijcou,ib,ia)*hir(istate)*coef(iab,mu
-     $                          ,istate)
+     $                     *ro*hir(istate)*coef(iab,mu,istate)
                            rimup(jstate,istate)=rimup(jstate,istate)
      $               -raib(istate)*sp(iab,mu,jstate,istate)+rabi(istate)
      $                          *spp(iab,mu,jstate,istate)-hir(istate)
-     $                          *daoff(ijcou,ib,ia)*coef(iab+nn,mu
-     $                          ,istate)
-                           rimu(istate,jstate)=rimu(istate,jstate)+(2.d0
-     $          *raib(jstate)-rabi(jstate))*s(iab,mu,istate,jstate)+2.d0
-     $              *daoff(ijcou,ia,ib)*hir(jstate)*coef(iab,mu,jstate)
-                           rimup(istate,jstate)=rimup(istate,jstate)
-     $               -raib(jstate)*sp(iab,mu,istate,jstate)+rabi(jstate)
-     $                          *spp(iab,mu,istate,jstate)-hir(jstate)
-     $                          *daoff(ijcou,ia,ib)*coef(iab+nn,mu
-     $                          ,jstate)
+     $                          *ro*coef(iab+nn,mu,istate)
 
                         enddo
-                     enddo
                   enddo
                enddo
-               do istate=1,metat
                   deno(istate)=w(mu,istate)+
      *             epsnew(ir,istate)-epsnew(i,istate)
-!                   if (dabs(deno(istate))<0.01) then
-!                     print *,"warning, denominator for psien < 0.01 (",
-!      *             deno(istate),")"
-!                     print *,"w(",mu,",",istate,")=",w(mu,
-!      *             istate),"epsnew(,",ir,",",istate,")=",epsnew(ir,
-!      *             istate),"epsnew(,",i,",",istate,")=",epsnew(i,
-!      *             istate)
-!                     print *,"rimu=",rimu(istate,istate)," rimup=",
-!      *             rimup(istate,istate)
-!                   end if
-               enddo
-               do istate=1,metat
                   co=rimu(istate,istate)+rimup(istate,istate)
                   cirmu=co/deno(istate)
                   cont=co*cirmu
@@ -5260,24 +4974,18 @@ c--e il vettore vaux(mu) se si vuole la rho perturbata al primo ordine
      &                                    -cirmu*vaux(mu,istate)
                   endif
 
-                  do jstate=1,istate-1
+                  do jstate=1,metat
+                     if(jstate.eq.istate)cycle
                      contri=(rimu(jstate,istate)+rimup(jstate,istate))
      $                    *(rimu(istate,istate)+rimup(istate,istate))
      $                    /deno(istate)
                      e2(jstate,istate)=e2(jstate,istate)-contri
-                     contri=(rimu(istate,jstate)+rimup(istate,jstate))
-     $                    *(rimu(jstate,jstate)+rimup(jstate,jstate))
-     $                    /deno(jstate)
-                     e2(istate,jstate)=e2(istate,jstate)-contri
                   enddo
-               enddo
             enddo
          enddo
  1    enddo
       if(compute_rho1st)then
-        do istate = 1, metat
           write(27)((rhoir(i,ivirt,istate),i=1,ncore),ivirt=1,nvirt)
-        end do
         deallocate(rhoir,vaux)
       end if
       deallocate(s)
@@ -5293,7 +5001,7 @@ c----------------------------------------------------------------
       subroutine e21pcont(e2,psi2,heffd,coef,w,ro3,daa,da,ro3off,daaoff
      $     ,daoff,nact,ncore,norb,nnew,zgel,metat,epsnew,uv,uc,factor,
      * nmo,nc,na,nv,nbe,ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,
-     * compute_rho1st,cho_reduced_vec)
+     * compute_rho1st,cho_reduced_vec,istate)
       use info_symmetry
       ! Leon -- for Cholesky
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
@@ -5323,7 +5031,8 @@ Cele QD_new
       integer nmo(nsym),nc(nsym),na(nsym),nv(nsym),nbe(nsym),ncmax,nvmax
       allocatable baic(:),hia(:),dint1(:,:,:,:)
 
-      real*8 cho_reduced_vec(nchovec,nlvec,metat) ! Cholesky vectors
+      real*8 cho_reduced_vec(nchovec,nlvec) ! Cholesky vectors
+      integer istate
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
       nvirt=norb-nact-ncore
       allocate (baic(metat))
@@ -5349,7 +5058,7 @@ Cele QD_new
       iabcp=0
       ijcou=0
 C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(ia,ib,ic,iap,ibp,icp,iabc,
-C$OMP& iabcp,zcond,ijcou,istate,jstate) COLLAPSE(6)
+C$OMP& iabcp,zcond,ijcou,jstate) COLLAPSE(6)
       do ia=1,nact
          do ib=1,nact
             do ic=1,nact
@@ -5362,7 +5071,6 @@ C$OMP& iabcp,zcond,ijcou,istate,jstate) COLLAPSE(6)
                         iabcp=icp+nact*((ibp-1)+nact*(iap-1))
                         zcond=ib.eq.1.and.ic.eq.1
                         ijcou=0
-                        do istate=1,metat
                            s(:,iabc,istate,istate)=
      $  s(:,iabc,istate,istate)+eee2t(icp,iap,ibp,ib,ia,ic
      $        ,ro3,daa,da,nact,istate,metat)*coef(:,iabcp,istate)
@@ -5371,30 +5079,30 @@ C$OMP& iabcp,zcond,ijcou,istate,jstate) COLLAPSE(6)
      $ sp(:,ia,istate,istate)+ee2tr(icp,iap
      $ ,ibp,ia,daa,da,nact,istate,metat)*coef(:,iabcp,istate)
                            end if
-                           do jstate=1,istate-1
-                              ijcou=istate*(istate-3)/2+jstate+1
-c---val(jstate,istate) wants RO(jstate,istate)!!!
-!                               val(istate,jstate)=eee2t(icp,iap,ibp,ib,ia
-!      $                             ,ic,ro3off,daaoff,daoff,nact,ijcou
-!      $                             ,ncoppie)
-                              s(:,iabc,istate,jstate)=
-     $ s(:,iabc,istate,jstate)+eee2t(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
-     $   daoff,nact,ijcou,ncoppie)*coef(:,iabcp,jstate)
-
-                              s(:,iabc,jstate,istate)=
+                           do jstate=1,metat
+                              if(jstate.eq.istate)cycle
+                              if(jstate.lt.istate)then
+                                 ijcou=(istate-1)*(istate-2)/2+jstate
+                                 s(:,iabc,jstate,istate)=
      $ s(:,iabc,jstate,istate)+eee2t(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,
      $          daoff,nact,ijcou,ncoppie)*coef(:,iabcp,istate)
-                              if (zcond) then
-                                sp(:,ia,istate,jstate)=
-     $ sp(:,ia,istate,jstate)+ee2tr(icp,iap,ibp,ia,daaoff,daoff,nact,
-     $    ijcou,ncoppie)*coef(:,iabcp,jstate)
-
-                                sp(:,ia,jstate,istate)=
+                                 if (zcond) then
+                                   sp(:,ia,jstate,istate)=
      $ sp(:,ia,jstate,istate)+ee2tl(ia,ibp,iap,icp,daaoff,daoff,nact,
      $    ijcou,ncoppie)*coef(:,iabcp,istate)
-                              end if
+                                 end if
+                              else
+                                 ijcou=(jstate-1)*(jstate-2)/2+istate
+                              s(:,iabc,jstate,istate)=
+     $ s(:,iabc,jstate,istate)+eee2t(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
+     $   daoff,nact,ijcou,ncoppie)*coef(:,iabcp,istate)
+                                 if (zcond) then
+                                   sp(:,ia,jstate,istate)=
+     $ sp(:,ia,jstate,istate)+ee2tr(icp,iap,ibp,ia,daaoff,daoff,nact,
+     $    ijcou,ncoppie)*coef(:,iabcp,istate)
+                                 end if
+                              endif
                            enddo
-                        enddo
                      enddo
                   enddo
                enddo
@@ -5411,12 +5119,10 @@ C$OMP END PARALLEL DO
                   do ib=1,nact
                      do ic=1,nact
                         iabc=iabc+1
-                        do istate=1,metat
                        myval=ee2tl(id,ib,ia,ic,daa,da,nact,istate,metat)
                        vaux(id,mu,istate) = vaux(id,mu,istate)
      &                                    + coef(mu,iabc,istate)
      &                                    * myval
-                        enddo
                      enddo
                   enddo
                enddo
@@ -5430,8 +5136,9 @@ c-------------------------------------------------------
         iis=itsym(i)
         if (zgel(i)) goto 1
           if (Do_Cholesky) then
-            call newint_iabc_cholesky(cho_reduced_vec,dint1,
-     &         metat,i,ncore,nact,nvirt)
+            call newint_iabc_cholesky(cho_reduced_vec,
+     &         dint1(:,:,:,istate),
+     &         i,ncore,nact,nvirt)
           else
             call newint_i_abc(metat,norb,ncore,nact,nvirt,
      *        factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -5444,17 +5151,14 @@ c-------------------------------------------------------
             ias=itsym(ia+ncore)
                if (iis.eq.ias) then
                ira=indice(i,ia+ncore)
-               do istate=1,metat
                hia(istate)=heffd(ira,istate)
                   aimu(istate,istate)=aimu(istate,istate)+hia(istate)*
      *                sp(mu,ia,istate,istate)
-                  do jstate=1,istate-1
+                  do jstate=1,metat
+                    if(jstate.eq.istate)cycle
                     aimu(jstate,istate)=aimu(jstate,istate)+hia(istate)*
      *                sp(mu,ia,jstate,istate)
-                     aimu(istate,jstate)=aimu(istate,jstate)+
-     *                 hia(jstate)*sp(mu,ia,istate,jstate)
                   enddo
-               enddo
                endif !if (iis.eq.ias)
                do ib=1,nact
                ibs=itsym(ib+ncore)
@@ -5464,24 +5168,18 @@ c-------------------------------------------------------
                      iabcs=its(iabsy,ics)
                      iabc=iabc+1
                      if (iabcs.ne.iis)cycle
-                     do istate=1,metat
                       baic(istate)=dint1(ia,ic,ib,istate)
                         aimu(istate,istate)=aimu(istate,istate)+
      *                   baic(istate)*s(mu,iabc,istate,istate)
-                        do jstate=1,istate-1
+                        do jstate=1,metat
+                           if(jstate.eq.istate)cycle
                            aimu(jstate,istate)=aimu(jstate,istate)+
      *                   baic(istate)*s(mu,iabc,jstate,istate)
-                           aimu(istate,jstate)=aimu(istate,jstate)+
-     *                   baic(jstate)*s(mu,iabc,istate,jstate)
                         enddo
-                     enddo
                   enddo
                enddo
             enddo
-            do istate=1,metat
                deno(istate)=w(mu,istate)-epsnew(i,istate)
-            enddo
-            do istate=1,metat
                co=aimu(istate,istate)/deno(istate)
                cont=aimu(istate,istate)*co
                e2(istate,istate)=e2(istate,istate)-cont
@@ -5493,22 +5191,16 @@ c-------------------------------------------------------
      &                                * vaux(id,mu,istate)
                  end do
                end if
-               do jstate=1,istate
+               do jstate=1,metat
                   if(jstate.eq.istate)cycle
                   co=aimu(jstate,istate)/deno(istate)
                   cont=aimu(istate,istate)*co
                   e2(jstate,istate)=e2(jstate,istate)-cont
-                  co=aimu(istate,jstate)/deno(jstate)
-                  cont=aimu(jstate,jstate)*co
-                  e2(istate,jstate)=e2(istate,jstate)-cont
                enddo
-            enddo
          enddo
  1    enddo
       if(compute_rho1st)then
-        do istate = 1, metat
           write(27)((rhoid(i,id,istate),i=1,ncore),id=1,nact)
-        end do
         deallocate(rhoid,vaux)
       end if
       deallocate(s)
@@ -5522,7 +5214,8 @@ c------------------------------------------------------------------
       subroutine e2m1pcont(e2,psi2,heffd,coef,w,ro3,daa,da,ro3off,daaoff
      $     ,daoff,nact,ncore,norb,nnew,zgel,metat,
      *      epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,ncmax,nvmax,
-     *    nord_nev2mol,nord_mol2nev,nsym,compute_rho1st,cho_reduced_vec)
+     *    nord_nev2mol,nord_mol2nev,nsym,compute_rho1st,cho_reduced_vec,
+     &    istate)
       use info_symmetry
       ! Leon -- for Cholesky
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
@@ -5544,7 +5237,8 @@ c------------------------------------------------------------------
       real*4 tarray(2)
       logical*1 zcond
 
-      real*8 cho_reduced_vec(nchovec,nlvec,metat) ! Cholesky vectors
+      real*8 cho_reduced_vec(nchovec,nlvec) ! Cholesky vectors
+      integer istate
 Cele QD_new
       real *8 epsnew(norb,metat)
       integer nsym,nord_nev2mol(norb),nord_mol2nev(norb)
@@ -5579,7 +5273,7 @@ Cele QD_new
       iabcp=0
       ijcou=0
 C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(ia,ib,ic,iap,ibp,icp,iabc,
-C$OMP& iabcp,zcond,ijcou,istate,jstate) COLLAPSE(6)
+C$OMP& iabcp,zcond,ijcou,jstate) COLLAPSE(6)
       do ia=1,nact
        do ib=1,nact
         do ic=1,nact
@@ -5590,11 +5284,6 @@ C$OMP& iabcp,zcond,ijcou,istate,jstate) COLLAPSE(6)
             iabcp=icp+nact*((ibp-1)+nact*(iap-1))
             ijcou=0
             zcond=ib.eq.1.and.ic.eq.1
-            do istate=1,metat
-!              val(istate,istate)=eee2(icp,iap,ibp,ib,ia,ic
-!      $            ,ro3,daa,da,nact,istate,metat)
-!              if(zcond)val2(istate,istate)=ee2(icp,iap,ibp
-!      $            ,ia,daa,da,nact,istate,metat)
              s(:,iabc,istate,istate)=s(:,iabc,istate,istate)+
      $  eee2(icp,iap,ibp,ib,ia,ic,ro3,daa,da,nact,istate,metat)
      $  *coef(:,iabcp,istate)
@@ -5603,27 +5292,30 @@ C$OMP& iabcp,zcond,ijcou,istate,jstate) COLLAPSE(6)
      $  ee2(icp,iap,ibp,ia,daa,da,nact,istate,metat)
      $  *coef(:,iabcp,istate)
              end if
-             do jstate=1,istate-1
-!               if(jstate.eq.istate)cycle
-              ijcou=istate*(istate-3)/2+jstate+1
-              s(:,iabc,istate,jstate)=
-     $ s(:,iabc,istate,jstate)+eee2(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
-     $   daoff,nact,ijcou,ncoppie)*coef(:,iabcp,jstate)
-
-              s(:,iabc,jstate,istate)=
+             do jstate=1,metat
+              if(jstate.eq.istate)cycle
+              if(jstate.lt.istate)then
+                 ijcou=(istate-1)*(istate-2)/2+jstate
+                 s(:,iabc,jstate,istate)=
      $ s(:,iabc,jstate,istate)+eee2(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,
      $          daoff,nact,ijcou,ncoppie)*coef(:,iabcp,istate)
-              if (zcond) then
-                sp(:,ia,istate,jstate)=
-     $ sp(:,ia,istate,jstate)+ee2(icp,iap,ibp,ia,daaoff,daoff,nact,
-     $    ijcou,ncoppie)*coef(:,iabcp,jstate)
-
-                sp(:,ia,jstate,istate)=
+                 if (zcond) then
+                   sp(:,ia,jstate,istate)=
      $ sp(:,ia,jstate,istate)+ee2(ia,ibp,iap,icp,daaoff,daoff,nact,
      $    ijcou,ncoppie)*coef(:,iabcp,istate)
-              end if
+                 end if
+              else
+                 ijcou=(jstate-1)*(jstate-2)/2+istate
+                 s(:,iabc,jstate,istate)=
+     $ s(:,iabc,jstate,istate)+eee2(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
+     $   daoff,nact,ijcou,ncoppie)*coef(:,iabcp,istate)
+                 if (zcond) then
+                   sp(:,ia,jstate,istate)=
+     $ sp(:,ia,jstate,istate)+ee2(icp,iap,ibp,ia,daaoff,daoff,nact,
+     $    ijcou,ncoppie)*coef(:,iabcp,istate)
+                 end if
+              endif
              enddo
-            enddo
            enddo
           enddo
          enddo
@@ -5640,13 +5332,10 @@ C$OMP END PARALLEL DO
               do ib=1,nact
                 do ic=1,nact
                   iabc=iabc+1
-                  do istate = 1, metat
-                    !myval=ee2_dypc(id,ib,ia,ic,daa,da,nact,istate,metat)
                     myval=ee2(id,ib,ia,ic,daa,da,nact,istate,metat)
                     vaux(id,mu,istate) = vaux(id,mu,istate)
      &                                 + coef(mu,iabc,istate)
      &                                 * myval
-                  end do
                 enddo
               enddo
             enddo
@@ -5664,8 +5353,8 @@ c-------------------------------------------------------
       irs=itsym(ir)
 
       if (Do_Cholesky) then
-        call newint_abcr_cholesky(cho_reduced_vec,dint1,
-     &    metat,ir,ncore,nact,nvirt)
+        call newint_abcr_cholesky(cho_reduced_vec,dint1(:,:,:,istate),
+     &    ir,ncore,nact,nvirt)
       else
       call newint_r_abc(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -5680,16 +5369,13 @@ c-------------------------------------------------------
          ira=indice(ir,ia+ncore)
 
          if (ias.eq.irs) then
-         do istate=1,metat
          hra(istate)=heffd(ira,istate)
       rmu(istate,istate)=rmu(istate,istate)+hra(istate)*sp(mu,ia
      $                 ,istate,istate)
-      do jstate=1,istate-1
+      do jstate=1,metat
+      if(jstate.eq.istate)cycle
       rmu(jstate,istate)=rmu(jstate,istate)+hra(istate)*sp(mu,ia
      $                    ,jstate,istate)
-      rmu(istate,jstate)=rmu(istate,jstate)+hra(jstate)*sp(mu,ia
-     $                    ,istate,jstate)
-      enddo
       enddo
       endif !if (ias.eq.irs) then
 
@@ -5701,24 +5387,18 @@ c-------------------------------------------------------
           iabcs=its(iabsy,ics)
            iabc=iabc+1
            if (iabcs.ne.irs) cycle
-           do istate=1,metat
        rabc(istate)=dint1(ia,ic,ib,istate)
       rmu(istate,istate)=rmu(istate,istate)+rabc(istate)*s(mu
      $                       ,iabc,istate,istate)
-      do jstate=1,istate-1
+      do jstate=1,metat
+      if(jstate.eq.istate)cycle
       rmu(jstate,istate)=rmu(jstate,istate)+rabc(istate)
      $                          *s(mu,iabc,jstate,istate)
-      rmu(istate,jstate)=rmu(istate,jstate)+rabc(jstate)
-     $                          *s(mu,iabc,istate,jstate)
-      enddo
       enddo
           enddo
          enddo
         enddo
-        do istate=1,metat
          deno(istate)=w(mu,istate)+epsnew(ir,istate)
-        enddo
-        do istate=1,metat
          co=rmu(istate,istate)/deno(istate)
          cont=rmu(istate,istate)*co
          e2(istate,istate)=e2(istate,istate)-cont
@@ -5732,22 +5412,16 @@ c-------------------------------------------------------
            end do
          endif
 
-         do jstate=1,istate
+         do jstate=1,metat
           if(jstate.eq.istate)cycle
           co=rmu(jstate,istate)/deno(istate)
           cont=rmu(istate,istate)*co
           e2(jstate,istate)=e2(jstate,istate)-cont
-          co=rmu(istate,jstate)/deno(jstate)
-          cont=rmu(jstate,jstate)*co
-          e2(istate,jstate)=e2(istate,jstate)-cont
          enddo
-        enddo
        enddo
       enddo
       if(compute_rho1st)then
-        do istate = 1, metat
           write(27)((rhodr(i,ivirt,istate),i=1,nact),ivirt=1,nvirt)
-        end do
         deallocate(rhodr,vaux)
       end if
       deallocate(s)
@@ -5762,7 +5436,8 @@ c-------------------------------------------------------
 c----------------------------------------------------------------
       subroutine vpupE(ncore,nact,ro3,ro3off,amat,bmat,cmat,dmat,daa,da
      $     ,daaoff,daoff,epsnew,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-     *   nord_nev2mol,nord_mol2nev,compute_rho1st,cho_reduced_vec)
+     *   nord_nev2mol,nord_mol2nev,compute_rho1st,cho_reduced_vec,
+     &   istate)
 
       use info_symmetry
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
@@ -5811,7 +5486,8 @@ Cele QD_new
       real*8 uv(nvmax,nvmax,nsym,metat),uc(ncmax,ncmax,nsym,metat)
       integer nmo(nsym),nc(nsym),na(nsym),nv(nsym),nbe(nsym),ncmax,nvmax
 
-      real*8 cho_reduced_vec(nchovec,nlvec,metat) ! Cholesky vectors
+      real*8 cho_reduced_vec(nchovec,nlvec) ! Cholesky vectors
+      integer istate
       allocatable traint_arr(:,:,:), traint1_arr(:,:,:)
 
       nvirt=norb-nact-ncore
@@ -5840,23 +5516,23 @@ c---- building Dyall's h eff----------
         do ir=1,ncore
         irs=itsym(ir)
         jkr=indice(ik,ir)
-          do istate=1,metat
             heffd(jkr,istate)=0.d0
             if (irs.ne.iks) cycle
             call newint_ia(metat,norb,ncore,nact,nevpt_ijkl%oneint,
      *       factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *       nord_nev2mol,nord_mol2nev,ir,ika,istate,traint)
             heffd(jkr,istate)=traint
-          end do
         end do
       end do
 
       do j=1,ncore
         if (Do_Cholesky) then
-          call newint_iija_cholesky(cho_reduced_vec,traint_arr,
-     &    metat,j,ncore,nact,nvirt)
-          call newint_ijia_cholesky(cho_reduced_vec,traint1_arr,
-     &    metat,j,ncore,nact,nvirt)
+          call newint_iija_cholesky(cho_reduced_vec,
+     &    traint_arr(:,:,istate),
+     &    j,ncore,nact,nvirt)
+          call newint_ijia_cholesky(cho_reduced_vec,
+     &    traint1_arr(:,:,istate),
+     &    j,ncore,nact,nvirt)
         end if
         do ik=ncore+1,ncore+nact
           ika=ik-ncore
@@ -5864,7 +5540,6 @@ c---- building Dyall's h eff----------
           do ir=1,ncore
             irs=itsym(ir)
             jkr=indice(ik,ir)
-            do istate=1,metat
               if (Do_Cholesky) then
                 traint=traint_arr(ir,ika,istate)
                 traint1=traint1_arr(ir,ika,istate)
@@ -5877,7 +5552,6 @@ c---- building Dyall's h eff----------
      *       nord_nev2mol,nord_mol2nev,ir,j,j,ika,istate,traint1)
               end if
               heffd(jkr,istate)=heffd(jkr,istate)+2.d0*traint-traint1
-            enddo
           enddo
         enddo
       enddo
@@ -5894,8 +5568,8 @@ c---- building Dyall's h eff----------
         call flush(6)
         endif
       if (Do_Cholesky) then
-        call newint_iabc_cholesky(cho_reduced_vec,dint1,
-     &    metat,ii,ncore,nact,nvirt)
+        call newint_iabc_cholesky(cho_reduced_vec,dint1(:,:,:,istate),
+     &    ii,ncore,nact,nvirt)
       else
         call newint_i_abc(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -5903,15 +5577,12 @@ c---- building Dyall's h eff----------
       end if
 c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
 
-       do istate=1,metat
         dumm(istate,istate)=0.d0
         dumk(istate)=0.d0
-        do jstate=1,istate
+        do jstate=1,metat
          if(jstate.eq.istate)cycle
-         dumm(istate,jstate)=0.d0
          dumm(jstate,istate)=0.d0
         enddo
-       enddo
 
        do ia=1,nact
         iac=ia+ncore
@@ -5922,23 +5593,24 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
          iaps=itsym(iapc)
          iiap=indice(ii,iapc)
          ijcou=0
-         do istate=1,metat
           rodum=-da(istate,iap,ia)
           if (iap.eq.ia) rodum=rodum+2.d0
           dumm(istate,istate)=dumm(istate,istate)+
      *      heffd(iiap,istate)*rodum*heffd(iia,istate)
           dumk(istate)=dumk(istate)+heffd(iiap,istate)*
      *         dmat(istate,iap,ia)*heffd(iia,istate)
-          do jstate=1,istate-1
-           ijcou=ijcou+1
-           rodum=-daoff(ijcou,iap,ia)
+          do jstate=1,metat
+           if(jstate.eq.istate)cycle
+           if(jstate.lt.istate)then
+            ijcou=(istate-1)*(istate-2)/2+jstate
+            rodum=-daoff(ijcou,iap,ia)
+           else
+            ijcou=(jstate-1)*(jstate-2)/2+istate
+            rodum=-daoff(ijcou,ia,iap)
+           endif
            dumm(jstate,istate)=dumm(jstate,istate)+
      *         heffd(iiap,istate)*rodum*heffd(iia,istate)
-           rodum=-daoff(ijcou,ia,iap)
-           dumm(istate,jstate)=dumm(istate,jstate)+
-     *         heffd(iiap,jstate)*rodum*heffd(iia,jstate)
           enddo
-         enddo
          do ibp=1,nact
           ibpc=ibp+ncore
           ibps=itsym(ibpc)
@@ -5949,7 +5621,6 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
            iabcps=its(iabps,icps)
            if (iabcps.ne.iis) cycle
            ijcou=0
-           do istate=1,metat
             cint(istate)=dint1(iap,icp,ibp,istate)
             dumm(istate,istate)=dumm(istate,istate)+2.d0*cint(istate)*
      *         ee2tr(icp,iap,ibp,ia,daa,da,nact,istate,metat)*
@@ -5958,17 +5629,19 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
      *           bmat(istate,iap,ibp,icp,ia)*heffd(iia,istate)
             dumk(istate)=dumk(istate)+cint(istate)*
      *           cmat(istate,ia,iap,ibp,icp)*heffd(iia,istate)
-            do jstate=1,istate-1
-             ijcou=ijcou+1
+            do jstate=1,metat
+             if(jstate.eq.istate)cycle
+             if(jstate.lt.istate)then
+              ijcou=(istate-1)*(istate-2)/2+jstate
+             else
+              ijcou=(jstate-1)*(jstate-2)/2+istate
+             endif
              dumm2=ee2tr(icp,iap,ibp,ia,daaoff,daoff,nact,ijcou
      $            ,ncoppie)+ee2tl(ia,ibp,iap,icp,daaoff,daoff,nact
      $            ,ijcou,ncoppie)
              dumm(jstate,istate)=dumm(jstate,istate)+cint(istate)
      $            *dumm2*heffd(iia,istate)
-             dumm(istate,jstate)=dumm(istate,jstate)+cint(jstate)
-     $            *dumm2*heffd(iia,jstate)
             enddo
-           enddo
            do ib=1,nact
             ibc=ib+ncore
             ibs=itsym(ibc)
@@ -5979,30 +5652,32 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
              iabcs=its(iabsy,ics)
              if (iabcs.ne.iis) cycle
              ijcou=0
-             do istate=1,metat
               cint2(istate)=dint1(ia,ic,ib,istate)
               dumm(istate,istate)=dumm(istate,istate)+cint(istate)*
      *          eee2t(icp,iap,ibp,ib,ia,ic,ro3,daa,da,nact,istate,metat)
      $             *cint2(istate)
               dumk(istate)=dumk(istate)+cint(istate)*
      *          amat(istate,iap,ibp,icp,ia,ib,ic)*cint2(istate)
-              do jstate=1,istate-1
-               ijcou=ijcou+1
+              do jstate=1,metat
+               if(jstate.eq.istate)cycle
+               if(jstate.lt.istate)then
+                ijcou=(istate-1)*(istate-2)/2+jstate
+                dumm2=eee2t(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
+     $              daoff,nact,ijcou,ncoppie)
+               else
+                ijcou=(jstate-1)*(jstate-2)/2+istate
+                dumm2=eee2t(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,
+     $              daoff,nact,ijcou,ncoppie)
+               endif
                dumm(jstate,istate)=dumm(jstate,istate)+cint(istate)
-     $              *eee2t(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,daoff
-     $              ,nact,ijcou,ncoppie)*cint2(istate)
-               dumm(istate,jstate)=dumm(istate,jstate)+cint(jstate)
-     $              *eee2t(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,daoff
-     $              ,nact,ijcou,ncoppie)*cint2(jstate)
+     $              *dumm2*cint2(istate)
               enddo
-             enddo
             enddo
            enddo
           enddo
          enddo
         enddo
        enddo
-       do istate=1,metat
         den(istate)=0.d0
         if(dumm(istate,istate).ne.0.d0)then
            epsimk=dumk(istate)/dumm(istate,istate)
@@ -6014,40 +5689,29 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
            e2mpp(6,istate)=e2mpp(6,istate)+co
            psimpp(6,istate)=psimpp(6,istate)+con
         endif
-       enddo
-       do istate=1,metat
         e2(istate,istate)=e2mpp(6,istate)
-        do jstate=1,istate
+        do jstate=1,metat
          if(jstate.eq.istate)cycle
          if(den(istate).ne.0.d0)e2mp(jstate,istate)=e2mp(jstate
      $        ,istate)+dumm(jstate,istate)/den(istate)
-         if(den(jstate).ne.0.d0)e2mp(istate,jstate)=e2mp(istate
-     $        ,jstate)+dumm(istate,jstate)/den(jstate)
          if(den(istate).ne.0.d0)e2(jstate,istate)=e2(jstate,istate)
      $        +dumm(jstate,istate)/den(istate)
-         if(den(jstate).ne.0.d0)e2(istate,jstate)=e2(istate,jstate)
-     $        +dumm(istate,jstate)/den(jstate)
         enddo
-       enddo
 
  800  enddo
       if(print_level > 0)then
       write (6,*)
       write (6,*) ' Contribution of V(+1)'' to Heff (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(+1)'' to the norm (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psimpp(6,istate)
-      enddo
       end if
       deallocate(dint1)
       deallocate(cint)
@@ -6062,7 +5726,6 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
       allocate(w(nact3,metat))
       allocate(work(1))
       w = 0; coef = 0
-      do istate=1,metat
        call fillcp1p(s,coef(1,1,istate),amat,ro3,daa,da,nact,nact3
      $      ,istate,metat)
        info = 0
@@ -6166,40 +5829,32 @@ c--   costruiamo le matrici ausiliarie S(abc,mu) e S'(a,mu)
        deallocate(caux)
 c     allocate(s(1:nnew,1:nact3))
 c     allocate(sp(1:nnew,1:nact3))
-      enddo
       call e21pcont(e2,psi2,heffd,coef,w,ro3,daa,da,ro3off,daaoff,daoff
      $     ,nact,ncore,norb,nnew,zgel,metat,
      *      epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
      *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,compute_rho1st,
-     *      cho_reduced_vec)
-      do istate=1,metat
+     *      cho_reduced_vec,istate)
        e2enp(6,istate)=e2(istate,istate)
        psienep(6,istate)=psi2(istate)
        psien(istate)=psien(istate)+psienep(6,istate)
        e2en(istate,istate)=e2en(istate,istate)+e2(istate,istate)
-       do jstate=1,istate
+       do jstate=1,metat
         if(jstate.eq.istate)cycle
-        e2en(istate,jstate)=e2en(istate,jstate)+e2(istate,jstate)
         e2en(jstate,istate)=e2en(jstate,istate)+e2(jstate,istate)
        enddo
-      enddo
       if(print_level > 0)then
       write (6,*)
       write (6,*) ' Contribution of V(+1)'' to Heff (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(+1)'' to the norm (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psienep(6,istate)
-      enddo
       end if
       call flush(6)
       deallocate(coef)
@@ -6213,7 +5868,8 @@ c     allocate(sp(1:nnew,1:nact3))
 c----------------------------------------------------------------
       subroutine vmupE(ncore,nact,ro3,ro3off,amat,bmat,cmat,dmat,daa,da
      $     ,daaoff,daoff,epsnew,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
-     *   nord_nev2mol,nord_mol2nev,compute_rho1st,cho_reduced_vec)
+     *   nord_nev2mol,nord_mol2nev,compute_rho1st,cho_reduced_vec,
+     &   istate)
 
       use info_symmetry
       use nevpt2_cfg, only : Do_Cholesky, no_pc, MultGroup, print_level
@@ -6257,7 +5913,8 @@ c----------------------------------------------------------------
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       ! Leon -- Cholesky
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      integer istate
 Cele QD_new
       allocatable heffd(:,:),cint(:),cint2(:)
       real *8 epsnew(norb,metat)
@@ -6300,22 +5957,22 @@ c----building Dyall's h eff----------
             irs=itsym(ir)
             irv=ir-ncore-nact
             jkr=indice(ik,ir)
-            do istate=1,metat
             if (iks.ne.irs) cycle
       call newint_ar(metat,norb,ncore,nact,nevpt_ijkl%oneint,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *   nord_nev2mol,nord_mol2nev,ia,irv,istate,traint)
             heffd(jkr,istate)=traint
-            end do
          end do
       end do
 
       do j=1,ncore
         if (Do_Cholesky) then
-          call newint_arij_cholesky(cho_reduced_vec,traint_arr,
-     &    metat,j,j,ncore,nact,nvirt)
-          call newint_airj_cholesky(cho_reduced_vec,traint1_arr,
-     &    metat,j,j,ncore,nact,nvirt)
+          call newint_arij_cholesky(cho_reduced_vec,
+     &    traint_arr(:,:,istate),
+     &    j,j,ncore,nact,nvirt)
+          call newint_airj_cholesky(cho_reduced_vec,
+     &    traint1_arr(:,:,istate),
+     &    j,j,ncore,nact,nvirt)
         end if
         do ik=ncore+1,ncore+nact
           ia=ik-ncore
@@ -6324,7 +5981,6 @@ c----building Dyall's h eff----------
             irs=itsym(ir)
             irv=ir-ncore-nact
             jkr=indice(ik,ir)
-            do istate=1,metat
               if (iks.ne.irs) cycle
                 if (Do_Cholesky) then
                   traint = traint_arr(ia,irv,istate)
@@ -6339,7 +5995,6 @@ c----building Dyall's h eff----------
                 end if
             heffd(jkr,istate)=heffd(jkr,istate)+
      *        2.d0*traint-traint1
-            end do
           end do
         end do
       end do
@@ -6348,15 +6003,15 @@ c----building Dyall's h eff----------
         irs=itsym(ir)
         irv=ir-ncore-nact
         if (Do_Cholesky) then
-          call newint_abbr_cholesky(cho_reduced_vec,traint_abbr,
-     &    metat,ir,ncore,nact,nvirt)
+          call newint_abbr_cholesky(cho_reduced_vec,
+     &    traint_abbr(:,:,istate),
+     &    ir,ncore,nact,nvirt)
         ! TODO: there should be a way to avoid the newint_abbr_cholesky call here and use the same batch for building the Dyall Hamiltonian here and calculating the SC contributions below
         end if
         do ik=ncore+1,ncore+nact
           ia=ik-ncore
           iks=itsym(ik)
           jkr=indice(ik,ir)
-          do istate=1,metat
             if (iks.ne.irs) cycle
             do j=ncore+1,ncore+nact
               ib=j-ncore
@@ -6369,7 +6024,6 @@ c----building Dyall's h eff----------
               end if
               heffd(jkr,istate)=heffd(jkr,istate)-traint
             enddo
-          enddo
         enddo
       enddo
 
@@ -6386,8 +6040,8 @@ c----building Dyall's h eff----------
       call flush(6)
       endif
       if (Do_Cholesky) then
-        call newint_abcr_cholesky(cho_reduced_vec,dint1,
-     &    metat,ir,ncore,nact,nvirt)
+        call newint_abcr_cholesky(cho_reduced_vec,dint1(:,:,:,istate),
+     &    ir,ncore,nact,nvirt)
       else
         call newint_r_abc(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -6400,18 +6054,20 @@ c----building Dyall's h eff----------
       if (nsym.eq.1) then
 
       ! Parallelised code without symmetry support
-
-
-       do istate=1,metat
          dumki=0
          dummii=0
-         do jstate=1,istate
-           dummij=0
+         do jstate=1,metat
            dummji=0
-           ijcou=istate*(istate-3)/2+jstate+1
+           if(jstate.eq.istate)then
+             ijcou=0
+           elseif(jstate.lt.istate)then
+             ijcou=(istate-1)*(istate-2)/2+jstate
+           else
+             ijcou=(jstate-1)*(jstate-2)/2+istate
+           endif
 C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(ib,ic,ibc,icc,ia,iap,iac,
 C$OMP& ira,iapc,irap,ibp,ibpc,icp,icpc,dumm2) COLLAPSE(2)
-C$OMP& REDUCTION(+:dummii,dummij,dummji,dumki)
+C$OMP& REDUCTION(+:dummii,dummji,dumki)
            do ia=1,nact
              do iap=1,nact
                iac=ia+ncore
@@ -6424,12 +6080,15 @@ C$OMP& REDUCTION(+:dummii,dummij,dummji,dumki)
                  dumki=dumki+heffd(irap,istate)
      *            *dmat(istate,iap,ia)*heffd(ira,istate)
                else
-                 dummji=dummji+
-     $            heffd(irap,istate)*daoff(ijcou,ia,iap)*
-     $            heffd(ira,istate)
-                 dummij=dummij+
-     $            heffd(irap,jstate)*daoff(ijcou,iap,ia)*
-     $            heffd(ira,jstate)
+                 if(jstate.lt.istate)then
+                   dummji=dummji+
+     $             heffd(irap,istate)*daoff(ijcou,ia,iap)*
+     $             heffd(ira,istate)
+                 else
+                   dummji=dummji+
+     $             heffd(irap,istate)*daoff(ijcou,iap,ia)*
+     $             heffd(ira,istate)
+                 endif
                endif
 
                do ibp=1,nact
@@ -6446,13 +6105,12 @@ C$OMP& REDUCTION(+:dummii,dummij,dummji,dumki)
      *                 heffd(ira,istate)+dint1(iap,icp,ibp,istate)*
      *                 cmat(istate,ia,iap,ibp,icp)*heffd(ira,istate)
                    else
-                     dumm2=ee2(icp,iap,ibp,ia,daaoff,daoff,nact,ijcou,
-     $                 ncoppie)+ee2(ia,ibp,iap,icp,daaoff,daoff,nact,
-     $                 ijcou,ncoppie)
+                     dumm2=ee2(icp,iap,ibp,ia,daaoff,daoff,nact,
+     $                 ijcou,ncoppie)+ee2(ia,ibp,iap,icp,daaoff,
+     $                 daoff,nact,ijcou,ncoppie)
                      dummji=dummji+
-     $                dint1(iap,icp,ibp,istate)*dumm2*heffd(ira,istate)
-                     dummij=dummij+
-     $                dint1(iap,icp,ibp,jstate)*dumm2*heffd(ira,jstate)
+     $                 dint1(iap,icp,ibp,istate)*dumm2*
+     $                 heffd(ira,istate)
                    endif
 
                    do ib=1,nact
@@ -6470,16 +6128,19 @@ C$OMP& REDUCTION(+:dummii,dummij,dummji,dumki)
      *                    amat(istate,iap,ibp,icp,ia,ib,ic)*
      *                    dint1(ia,ic,ib,istate)
                        else
-                         dummji=dummji+
-     $                    dint1(iap,icp,ibp,istate)*
-     $                    eee2(icp,iap,ibp,ib,ia,ic,ro3off,
-     $                    daaoff,daoff,nact,ijcou,ncoppie)*
-     $                    dint1(ia,ic,ib,istate)
-                         dummij=dummij+
-     $                    dint1(iap,icp,ibp,jstate)*
-     $                    eee2(ic,ia,ib,ibp,iap,icp,ro3off,
-     $                    daaoff,daoff,nact,ijcou,ncoppie)*
-     $                    dint1(ia,ic,ib,jstate)
+                         if(jstate.lt.istate)then
+                           dummji=dummji+
+     $                     dint1(iap,icp,ibp,istate)*
+     $                     eee2(icp,iap,ibp,ib,ia,ic,ro3off,
+     $                     daaoff,daoff,nact,ijcou,ncoppie)*
+     $                     dint1(ia,ic,ib,istate)
+                         else
+                           dummji=dummji+
+     $                     dint1(iap,icp,ibp,istate)*
+     $                     eee2(ic,ia,ib,ibp,iap,icp,ro3off,
+     $                     daaoff,daoff,nact,ijcou,ncoppie)*
+     $                     dint1(ia,ic,ib,istate)
+                         endif
                        endif
                      enddo
                    enddo
@@ -6488,12 +6149,10 @@ C$OMP& REDUCTION(+:dummii,dummij,dummji,dumki)
              enddo
            enddo
 C$OMP END PARALLEL DO
-           dumm(istate,jstate)=dummij
            dumm(jstate,istate)=dummji
          enddo
          dumk(istate)=dumki
          dumm(istate,istate)=dummii
-       enddo
       else
 
       ! If symmetry is present, use the old code
@@ -6508,22 +6167,22 @@ C$OMP END PARALLEL DO
           irap=indice(ir,iapc)
           ijcou=0
           if ((ias.eq.irs).and.(iaps.eq.irs)) then
-          do istate=1,metat
             dumm(istate,istate)=dumm(istate,istate)+heffd(irap,istate)
      *          *da(istate,iap,ia)*heffd(ira,istate)
             dumk(istate)=dumk(istate)+heffd(irap,istate)
      *          *dmat(istate,iap,ia)*heffd(ira,istate)
-            do jstate=1,istate
-                if(jstate.eq.istate)cycle
-                ijcou=ijcou+1
-                dumm(jstate,istate)=dumm(jstate,istate)+
-     $             heffd(irap,istate)*
-     $             daoff(ijcou,ia,iap)*heffd(ira,istate)
-                dumm(istate,jstate)=dumm(istate,jstate)+
-     $             heffd(irap,jstate)
-     $             *daoff(ijcou,iap,ia)*heffd(ira,jstate)
+            do jstate=1,metat
+              if(jstate.eq.istate)cycle
+              if(jstate.lt.istate)then
+                ijcou=(istate-1)*(istate-2)/2+jstate
+                dumm2=daoff(ijcou,ia,iap)
+              else
+                ijcou=(jstate-1)*(jstate-2)/2+istate
+                dumm2=daoff(ijcou,iap,ia)
+              endif
+              dumm(jstate,istate)=dumm(jstate,istate)+
+     $             heffd(irap,istate)*dumm2*heffd(ira,istate)
             enddo
-          enddo
           endif !if ((ias.eq.irs).and.(iaps.eq.irs))
 
           do ibp=1,nact
@@ -6536,7 +6195,6 @@ C$OMP END PARALLEL DO
             iabcps=its(iabps,icps)
             if (iabcps.ne.irs) cycle
             ijcou=0
-            do istate=1,metat
             cint(istate)=dint1(iap,icp,ibp,istate)
               dumm(istate,istate)=dumm(istate,istate)+2.d0*cint(istate)*
      *           ee2(icp,iap,ibp,ia,daa,da,nact,istate,metat)*
@@ -6545,18 +6203,19 @@ C$OMP END PARALLEL DO
      *           bmat(istate,iap,ibp,icp,ia)*heffd(ira,istate)
               dumk(istate)=dumk(istate)+cint(istate)*
      *           cmat(istate,ia,iap,ibp,icp)*heffd(ira,istate)
-              do jstate=1,istate
-                  if(jstate.eq.istate)cycle
-                  ijcou=ijcou+1
-                  dumm2=ee2(icp,iap,ibp,ia,daaoff,daoff,nact,ijcou
-     $               ,ncoppie)+ee2(ia,ibp,iap,icp,daaoff,daoff,nact
-     $               ,ijcou,ncoppie)
-                  dumm(jstate,istate)=dumm(jstate,istate)+cint(istate)
-     $               *dumm2*heffd(ira,istate)
-                  dumm(istate,jstate)=dumm(istate,jstate)+cint(jstate)
-     $               *dumm2*heffd(ira,jstate)
+              do jstate=1,metat
+                if(jstate.eq.istate)cycle
+                if(jstate.lt.istate)then
+                  ijcou=(istate-1)*(istate-2)/2+jstate
+                else
+                  ijcou=(jstate-1)*(jstate-2)/2+istate
+                endif
+                dumm2=ee2(icp,iap,ibp,ia,daaoff,daoff,nact,
+     $             ijcou,ncoppie)+ee2(ia,ibp,iap,icp,daaoff,
+     $             daoff,nact,ijcou,ncoppie)
+                dumm(jstate,istate)=dumm(jstate,istate)+cint(istate)
+     $             *dumm2*heffd(ira,istate)
               enddo
-            enddo
 
             do ib=1,nact
             ibc=ib+ncore
@@ -6568,23 +6227,26 @@ C$OMP END PARALLEL DO
               iabcs=its(iabsy,ics)
               if (iabcs.ne.irs) cycle
               ijcou=0
-              do istate=1,metat
           cint2(istate)=dint1(ia,ic,ib,istate)
                 dumm(istate,istate)=dumm(istate,istate)+cint(istate)*
      *          eee2(icp,iap,ibp,ib,ia,ic,ro3,daa,da,nact,istate,metat)*
      *          cint2(istate)
                 dumk(istate)=dumk(istate)+cint(istate)*
      *          amat(istate,iap,ibp,icp,ia,ib,ic)*cint2(istate)
-                do jstate=1,istate-1
-                    ijcou=ijcou+1
-                    dumm(jstate,istate)=dumm(jstate,istate)+cint(istate)
-     $                 *eee2(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,daoff
-     $                 ,nact,ijcou,ncoppie)*cint2(istate)
-                    dumm(istate,jstate)=dumm(istate,jstate)+cint(jstate)
-     $                 *eee2(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,daoff
-     $                 ,nact,ijcou,ncoppie)*cint2(jstate)
+                do jstate=1,metat
+                  if(jstate.eq.istate)cycle
+                  if(jstate.lt.istate)then
+                    ijcou=(istate-1)*(istate-2)/2+jstate
+                    dumm2=eee2(icp,iap,ibp,ib,ia,ic,ro3off,
+     $                 daaoff,daoff,nact,ijcou,ncoppie)
+                  else
+                    ijcou=(jstate-1)*(jstate-2)/2+istate
+                    dumm2=eee2(ic,ia,ib,ibp,iap,icp,ro3off,
+     $                 daaoff,daoff,nact,ijcou,ncoppie)
+                  endif
+                  dumm(jstate,istate)=dumm(jstate,istate)+cint(istate)
+     $               *dumm2*cint2(istate)
                 enddo
-              enddo
           enddo
         enddo
         enddo
@@ -6594,7 +6256,6 @@ C$OMP END PARALLEL DO
 
       end if
 
-      do istate=1,metat
          den(istate)=0.d0
          if(dumm(istate,istate).ne.0.d0)then
             epsimk=-dumk(istate)/dumm(istate,istate)
@@ -6607,41 +6268,30 @@ C$OMP END PARALLEL DO
             e2mpp(7,istate)=e2mpp(7,istate)+co
             psimpp(7,istate)=psimpp(7,istate)+con
          endif
-      enddo
-      do istate=1,metat
          e2(istate,istate)=e2mpp(7,istate)
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
             if(den(istate).ne.0.d0)e2mp(jstate,istate)=e2mp(jstate
      $           ,istate)+dumm(jstate,istate)/den(istate)
-            if(den(jstate).ne.0.d0)e2mp(istate,jstate)=e2mp(istate
-     $           ,jstate)+dumm(istate,jstate)/den(jstate)
             if(den(istate).ne.0.d0)e2(jstate,istate)=e2(jstate,istate)
      $           +dumm(jstate,istate)/den(istate)
-            if(den(jstate).ne.0.d0)e2(istate,jstate)=e2(istate,jstate)
-     $           +dumm(istate,jstate)/den(jstate)
 c------------------
          enddo
-      enddo
 
  800  enddo
       if(print_level > 0)then
       write (6,*)
       write (6,*) ' Contribution of V(-1)'' to Heff (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(-1)'' to the norm (SC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psimpp(7,istate)
-      enddo
       end if
       call flush(6)
       deallocate(provmat)
@@ -6657,7 +6307,6 @@ c--   Partially contracted NEV-PT class (-1')
       allocate(w(nact3,metat))
       allocate(work(1))
       w = 0.0d0; coef = 0.0d0
-      do istate=1,metat
          call fillcm1p(s,coef(1,1,istate),amat,ro3,daa,da,nact,nact3
      $        ,istate,metat)
          info = 0
@@ -6758,41 +6407,33 @@ c         do mu=1,nnew
 c--   inizio il calcolo perturbativo
 c--   costruiamo le matrici ausiliarie S(abc,mu) e S'(a,mu)
          deallocate(caux)
-      enddo
       deallocate(s)
       call e2m1pcont(e2,psi2,heffd,coef,w,ro3,daa,da,ro3off
      $     ,daaoff,daoff,nact,ncore,norb,nnew,zgel,metat,
      *      epsnew,uv,uc,factor,nmo,nc,na,nv,nbe,
      *      ncmax,nvmax,nord_nev2mol,nord_mol2nev,nsym,compute_rho1st,
-     *      cho_reduced_vec)
-      do istate=1,metat
+     *      cho_reduced_vec,istate)
          e2enp(7,istate)=e2(istate,istate)
          psienep(7,istate)=psi2(istate)
          psien(istate)=psien(istate)+psienep(7,istate)
          e2en(istate,istate)=e2en(istate,istate)+e2(istate,istate)
-         do jstate=1,istate
+         do jstate=1,metat
             if(jstate.eq.istate)cycle
-            e2en(istate,jstate)=e2en(istate,jstate)+e2(istate,jstate)
             e2en(jstate,istate)=e2en(jstate,istate)+e2(jstate,istate)
          enddo
-      enddo
       if(print_level > 0)then
       write (6,*)
       write (6,*) ' Contribution of V(-1)'' to Heff (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(I2,2x,10F15.10)')  MultGroup%State(istate),
      &                    (e2(istate,jstate),
      *                    jstate=1,metat)
-      enddo
       write (6,*)
       write (6,*) ' Contribution of V(-1)'' to the norm (PC)'
       write (6,*)
-      do istate=1,metat
       write (6,'(''  State '',I2,''  norm ='',F15.10)')
      &             MultGroup%State(istate),
      *             psienep(7,istate)
-      enddo
       end if
       call flush(6)
       deallocate(coef)
@@ -7957,13 +7598,13 @@ c
 c------------------------------------
 !     prepare the half-transformed Cholesky vectors
       subroutine cholesky_transform(cho_reduced_vec,ccore,cvirt,
-     &         ncore,nact,nvirt,metat)
+     &         ncore,nact,nvirt)
       use ijkl_utils
       implicit none
-      integer,intent(in) :: ncore,nact,nvirt,metat
-      real*8 cho_reduced_vec(nchovec,nlvec,metat) ! where to store the vectors
-      real*8 ccore(ncore,ncore,metat) ! Core and virtual Fock operators
-      real*8 cvirt(nvirt,nvirt,metat) !
+      integer,intent(in) :: ncore,nact,nvirt
+      real*8 cho_reduced_vec(nchovec,nlvec) ! where to store the vectors
+      real*8 ccore(ncore,ncore) ! Core and virtual Fock operators
+      real*8 cvirt(nvirt,nvirt) !
 
       real*8,allocatable :: cho_quarter_transform(:,:,:) ! store the result of a quarter-transform here
 
@@ -7974,21 +7615,18 @@ c------------------------------------
 
       ! TODO: maybe convert it to a matrix form
 
-
-
       ! this routine calculates the Cholesky half-transformed vectors
       ! the code is derived from an O(n^5) "smart" integral transform, though for a Cholesky vector it's only O(n^3)
       ! Core-core |ij) vectors
 
       allocate(cho_quarter_transform(nchovec,ncore,ncore))
 
-      do istate=1,metat
         cho_quarter_transform = 0.0d0
         do i=1,ncore
           do j=1,ncore
             do ii=1,ncore
               cho_quarter_transform(:,i,j)=
-     &  cho_quarter_transform(:,i,j)+ccore(ii,i,istate)*
+     &  cho_quarter_transform(:,i,j)+ccore(ii,i)*
      &  nevpt_ijkl%cholesky_array(:,indice(ii,j))
             end do
           end do
@@ -7997,13 +7635,12 @@ c------------------------------------
         do i=1,ncore
           do j=i,ncore ! this must be j=i because cho_reduced_vec is symmetric!
             do ii=1,ncore
-              cho_reduced_vec(:,indice(i,j),istate) =
-     &  cho_reduced_vec(:,indice(i,j),istate)+
-     &  ccore(ii,j,istate)*cho_quarter_transform(:,i,ii)
+              cho_reduced_vec(:,indice(i,j)) =
+     &  cho_reduced_vec(:,indice(i,j))+
+     &  ccore(ii,j)*cho_quarter_transform(:,i,ii)
             end do
           end do
         end do
-      end do
 
       if (allocated(cho_quarter_transform)) then
         deallocate(cho_quarter_transform)
@@ -8012,14 +7649,13 @@ c------------------------------------
       ! Core-virtual |ir) vectors
       allocate(cho_quarter_transform(nchovec,ncore,nvirt))
 
-      do istate=1,metat
         cho_quarter_transform = 0.0d0
         do i=1,ncore
           do r=1,nvirt
             ir = r + ncore + nact
             do ii=1,ncore
               cho_quarter_transform(:,i,r)=
-     &  cho_quarter_transform(:,i,r)+ccore(ii,i,istate)*
+     &  cho_quarter_transform(:,i,r)+ccore(ii,i)*
      &  nevpt_ijkl%cholesky_array(:,indice(ii,ir))
             end do
           end do
@@ -8029,136 +7665,102 @@ c------------------------------------
           do r=1,nvirt
             ir = r + ncore + nact
             do rr=1,nvirt
-              cho_reduced_vec(:,indice(i,ir),istate) =
-     &  cho_reduced_vec(:,indice(i,ir),istate)+
-     &  cvirt(rr,r,istate)*cho_quarter_transform(:,i,rr)
+              cho_reduced_vec(:,indice(i,ir)) =
+     &  cho_reduced_vec(:,indice(i,ir))+
+     &  cvirt(rr,r)*cho_quarter_transform(:,i,rr)
             end do
           end do
         end do
-      end do
 
 
       if (allocated(cho_quarter_transform)) then
         deallocate(cho_quarter_transform)
       end if
 
-      !! stupid transformation code (O(n^4)), you can enable it for testing (though it's untested and may be buggy)
-!       do istate=1,metat
-!         do i=1,ncore
-!           do r=1,nvirt
-!             ir = r + ncore + nact
-!             do ii=1,ncore
-!               do rr=1,nvirt
-!                 irr = rr + ncore + nact
-!                 cho_reduced_vec(:,indice(i,ir),istate) =
-!      &            cho_reduced_vec(:,indice(i,ir),istate) +
-!      &            ccore(ii,i,metat)*cvirt(rr,r,istate)*
-!      &           nevpt_ijkl%cholesky_array(:,indice(ii,irr))
-!               end do
-!             end do
-!           end do
-!         end do
-!       end do
-
-
       ! core-active |ai) Cholesky vectors
-      do istate=1,metat
         do i=1,ncore
           do a=1,nact
             ia = a + ncore
             do ii=1,ncore
-              cho_reduced_vec(:,indice(i,ia),istate) =
-     &  cho_reduced_vec(:,indice(i,ia),istate)+
-     &  ccore(ii,i,istate)*nevpt_ijkl%cholesky_array(:,indice(ii,ia))
+              cho_reduced_vec(:,indice(i,ia)) =
+     &  cho_reduced_vec(:,indice(i,ia))+
+     &  ccore(ii,i)*nevpt_ijkl%cholesky_array(:,indice(ii,ia))
             end do
           end do
         end do
-      end do
 
       ! active-virtual |ar) Cholesky vectors
-      do istate=1,metat
         do r=1,nvirt
           ir = r + ncore + nact
           do a=1,nact
             ia = a + ncore
             do rr=1,nvirt
               irr = rr + ncore + nact
-              cho_reduced_vec(:,indice(ir,ia),istate) =
-     &  cho_reduced_vec(:,indice(ir,ia),istate)+
-     &  cvirt(rr,r,istate)*nevpt_ijkl%cholesky_array(:,indice(irr,ia))
+              cho_reduced_vec(:,indice(ir,ia)) =
+     &  cho_reduced_vec(:,indice(ir,ia))+
+     &  cvirt(rr,r)*nevpt_ijkl%cholesky_array(:,indice(irr,ia))
             end do
           end do
         end do
-      end do
 
       ! active-active |ab) vectors need not be transformed.
       ! for now, they're copied as-is to the new vectors. If we need to
       ! save some memory, we may omit this step and copy the
       ! vectors directly from cholesky_array on integral reconstruction.
-      do istate=1, metat
         do i=ncore+1,ncore+nact
           do j=i,ncore+nact
-            cho_reduced_vec(:,indice(i,j),istate) =
+            cho_reduced_vec(:,indice(i,j)) =
      &   nevpt_ijkl%cholesky_array(:,indice(i,j))
           end do
         end do
-      end do
 
       ! TODO: other integrals...
       end subroutine cholesky_transform
 
 
-
-
-
       ! The following routines return a batch of transformed integrals, (i,x,x,j) analogously to newint_xxxx() calculated
       ! with cholesky_traint() from the transformed Cholesky vectors
-
 
       ! one could avoid this subroutine and use cholesky_traint() directly in v0(),v1k() etc.
       ! but it should be easier to parallelise if it's in a separate subroutine
 
       subroutine newint_irsj_cholesky(cho_reduced_vec,traint,
-     &    metat,i,j,ncore,nact,nvirt)
+     &    i,j,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,j,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,j,ncore,nact,nvirt
       integer r,s,istate,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nvirt,nvirt,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nvirt,nvirt)
 
-C BLAS ddot()
       real*8, external    :: ddot
 ! inline (statement) functions
       integer indice
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &   indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &   indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
 
-
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(istate,r,s) collapse(3)
-      do istate=1,metat
-        do r=1,nvirt
-          do s=1,nvirt
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(r,s) collapse(2)
+        do s=1,nvirt
+          do r=1,nvirt
             ! TODO: is the matrix symmetric? check it! maybe it can add additional computational saving
-            traint(r,s,istate) = cholesky_traint(
-     &       i,r+ncore+nact,s+ncore+nact,j,istate)
+            traint(r,s) = cholesky_traint(
+     &       i,r+ncore+nact,s+ncore+nact,j)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_irsj_cholesky
 
       subroutine newint_airj_cholesky(cho_reduced_vec,traint,
-     &    metat,i,j,ncore,nact,nvirt)
+     &    i,j,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,j,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,j,ncore,nact,nvirt
       integer r,a,istate,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nvirt,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nvirt)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8166,28 +7768,26 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(r,a,istate) collapse(3)
-      do istate=1,metat
-        do a=1,nact
-          do r=1,nvirt
-            traint(a,r,istate) = cholesky_traint(
-     &       a + ncore,i,r + ncore + nact,j,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(r,a) collapse(2)
+        do r=1,nvirt
+          do a=1,nact
+            traint(a,r) = cholesky_traint(
+     &       a + ncore,i,r + ncore + nact,j)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_airj_cholesky
 
       subroutine newint_arij_cholesky(cho_reduced_vec,traint,
-     &    metat,i,j,ncore,nact,nvirt)
+     &    i,j,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,j,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,j,ncore,nact,nvirt
       integer r,a,istate,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nvirt,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nvirt)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8195,28 +7795,26 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(r,a,istate) collapse(3)
-      do istate=1,metat
-        do a=1,nact
-          do r=1,nvirt
-            traint(a,r,istate) = cholesky_traint(
-     &       a + ncore,r + ncore + nact,i,j,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(r,a) collapse(2)
+        do r=1,nvirt
+          do a=1,nact
+            traint(a,r) = cholesky_traint(
+     &       a + ncore,r + ncore + nact,i,j)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_arij_cholesky
 
       subroutine newint_ris_a_cholesky(cho_reduced_vec,traint,
-     &    metat,r,s,ncore,nact,nvirt)
+     &    r,s,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: r,s,ncore,nact,nvirt,metat
+      integer,intent(in) :: r,s,ncore,nact,nvirt
       integer i,a,istate,j,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(ncore,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(ncore,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8224,28 +7822,26 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(i,a,istate) collapse(3)
-      do istate=1,metat
-        do i=1,ncore
-          do a=1,nact
-            traint(i,a,istate) = cholesky_traint(
-     &       r,i,s,a + ncore,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(i,a) collapse(2)
+        do a=1,nact
+          do i=1,ncore
+            traint(i,a) = cholesky_traint(
+     &       r,i,s,a + ncore)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_ris_a_cholesky
 
       subroutine newint_iajb_cholesky(cho_reduced_vec,traint,
-     &    metat,i,j,ncore,nact,nvirt)
+     &    i,j,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,j,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,j,ncore,nact,nvirt
       integer a,b,istate,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8253,28 +7849,26 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,istate) collapse(3)
-      do istate=1,metat
-        do a=1,nact
-          do b=1,nact
-            traint(a,b,istate) = cholesky_traint(
-     &       i,a + ncore,j,b + ncore,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b) collapse(2)
+        do b=1,nact
+          do a=1,nact
+            traint(a,b) = cholesky_traint(
+     &       i,a + ncore,j,b + ncore)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_iajb_cholesky
 
       subroutine newint_rasb_cholesky(cho_reduced_vec,traint,
-     &    metat,r,s,ncore,nact,nvirt) ! this subroutine is technically totally analogous to newint_iajb_cholesky, but may be changed in the future for better parallelisation
+     &    r,s,ncore,nact,nvirt) ! this subroutine is technically totally analogous to newint_iajb_cholesky, but may be changed in the future for better parallelisation
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: r,s,ncore,nact,nvirt,metat
+      integer,intent(in) :: r,s,ncore,nact,nvirt
       integer a,b,istate,i,j,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8282,29 +7876,27 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,istate) collapse(3)
-      do istate=1,metat
-        do a=1,nact
-          do b=1,nact
-            traint(a,b,istate) = cholesky_traint(
-     &       r,a + ncore,s,b + ncore,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b) collapse(2)
+        do b=1,nact
+          do a=1,nact
+            traint(a,b) = cholesky_traint(
+     &       r,a + ncore,s,b + ncore)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_rasb_cholesky
 
       subroutine newint_irab_cholesky(cho_reduced_vec,traint,
-     &    metat,i,r,ncore,nact,nvirt) ! corresponds to newint_ir_ab_J but keeps to the common nomenclature
+     &    i,r,ncore,nact,nvirt) ! corresponds to newint_ir_ab_J but keeps to the common nomenclature
       ! again, traints are calculated in active x active batches, possibly changing the batching (eg over virtuals) might improve parallelism
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,r,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,r,ncore,nact,nvirt
       integer a,b,istate,j,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8312,31 +7904,29 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,istate) collapse(3)
-      do istate=1,metat
-        do a=1,nact
-          do b=1,nact
-            traint(a,b,istate) = cholesky_traint(
-     &       i,r,a + ncore,b + ncore,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b) collapse(2)
+        do b=1,nact
+          do a=1,nact
+            traint(a,b) = cholesky_traint(
+     &       i,r,a + ncore,b + ncore)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_irab_cholesky
       subroutine newint_iarb_cholesky(cho_reduced_vec,traint,
-     &    metat,i,r,ncore,nact,nvirt) ! corresponds to newint_ir_ab_K
+     &    i,r,ncore,nact,nvirt) ! corresponds to newint_ir_ab_K
       ! but keeps to the common nomenclature
       ! again, traints are calculated in active x active batches,
       ! possibly changing the batching (eg over virtuals) might improve
       ! parallelism
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,r,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,r,ncore,nact,nvirt
       integer a,b,istate,j,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8344,28 +7934,26 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,istate) collapse(3)
-      do istate=1,metat
-        do a=1,nact
-          do b=1,nact
-            traint(a,b,istate) = cholesky_traint(
-     &       i,a + ncore,r,b + ncore,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b) collapse(2)
+        do b=1,nact
+          do a=1,nact
+            traint(a,b) = cholesky_traint(
+     &       i,a + ncore,r,b + ncore)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_iarb_cholesky
 
       subroutine newint_abcr_cholesky(cho_reduced_vec,traint,
-     &    metat,r,ncore,nact,nvirt)
+     &    r,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: r,ncore,nact,nvirt,metat
+      integer,intent(in) :: r,ncore,nact,nvirt
       integer a,b,c,istate,i,j,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nact,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nact,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8373,31 +7961,29 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,c,istate) collapse(4)
-      do istate=1,metat
-        do a=1,nact
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,c) collapse(3)
+        do c=1,nact
           do b=1,nact
-            do c=1,nact
-              traint(a,b,c,istate) = cholesky_traint(
-     &        a + ncore,b + ncore,c + ncore,r,istate)
+            do a=1,nact
+              traint(a,b,c) = cholesky_traint(
+     &        a + ncore,b + ncore,c + ncore,r)
             end do
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_abcr_cholesky
 
 
       subroutine newint_abbr_cholesky(cho_reduced_vec,traint,
-     &    metat,r,ncore,nact,nvirt)
+     &    r,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: r,ncore,nact,nvirt,metat
+      integer,intent(in) :: r,ncore,nact,nvirt
       integer a,b,istate,i,j,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8405,28 +7991,26 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,istate) collapse(3)
-      do istate=1,metat
-        do a=1,nact
-          do b=1,nact
-              traint(a,b,istate) = cholesky_traint(
-     &        a + ncore,b + ncore,b + ncore,r,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b) collapse(2)
+        do b=1,nact
+          do a=1,nact
+              traint(a,b) = cholesky_traint(
+     &        a + ncore,b + ncore,b + ncore,r)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_abbr_cholesky
 
       subroutine newint_iija_cholesky(cho_reduced_vec,traint,
-     &    metat,i,ncore,nact,nvirt)
+     &    i,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,ncore,nact,nvirt
       integer j,a,istate,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(ncore,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(ncore,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8434,28 +8018,26 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,j,istate) collapse(3)
-      do istate=1,metat
-        do j=1,ncore
-          do a=1,nact
-              traint(j,a,istate) = cholesky_traint(
-     &        i,i,j,a + ncore,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,j) collapse(2)
+        do a=1,nact
+          do j=1,ncore
+              traint(j,a) = cholesky_traint(
+     &        i,i,j,a + ncore)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_iija_cholesky
 
       subroutine newint_ijia_cholesky(cho_reduced_vec,traint,
-     &    metat,i,ncore,nact,nvirt)
+     &    i,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,ncore,nact,nvirt
       integer j,a,istate,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(ncore,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(ncore,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8463,28 +8045,26 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,j,istate) collapse(3)
-      do istate=1,metat
-        do j=1,ncore
-          do a=1,nact
-              traint(j,a,istate) = cholesky_traint(
-     &        i,j,i,a + ncore,istate)
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,j) collapse(2)
+        do a=1,nact
+          do j=1,ncore
+              traint(j,a) = cholesky_traint(
+     &        i,j,i,a + ncore)
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_ijia_cholesky
 
       subroutine newint_iabc_cholesky(cho_reduced_vec,traint,
-     &    metat,i,ncore,nact,nvirt)
+     &    i,ncore,nact,nvirt)
       use ijkl_utils, only : nevpt_ijkl,nchovec,nlvec
       implicit none
-      integer,intent(in) :: i,ncore,nact,nvirt,metat
+      integer,intent(in) :: i,ncore,nact,nvirt
       integer a,b,c,istate,j,k,l
-      real*8 cho_reduced_vec(nchovec,nlvec,metat)
-      real*8 traint(nact,nact,nact,metat)
+      real*8 cho_reduced_vec(nchovec,nlvec)
+      real*8 traint(nact,nact,nact)
 
       real*8, external    :: ddot
 ! inline (statement) functions
@@ -8492,19 +8072,17 @@ C$OMP END PARALLEL DO
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       real*8 cholesky_traint
-      cholesky_traint(i,j,k,l,istate)=ddot(nchovec,cho_reduced_vec(1,
-     &  indice(i,j),istate),1,cho_reduced_vec(1,indice(k,l),istate),1)
-C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,c,istate) collapse(4)
-      do istate=1,metat
-        do a=1,nact
+      cholesky_traint(i,j,k,l)=ddot(nchovec,cho_reduced_vec(1,
+     &  indice(i,j)),1,cho_reduced_vec(1,indice(k,l)),1)
+C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(a,b,c) collapse(3)
+        do c=1,nact
           do b=1,nact
-            do c=1,nact
-              traint(a,b,c,istate) = cholesky_traint(
-     &        a + ncore,b + ncore,c + ncore,i,istate)
+            do a=1,nact
+              traint(a,b,c) = cholesky_traint(
+     &        a + ncore,b + ncore,c + ncore,i)
             end do
           end do
         end do
-      end do
 C$OMP END PARALLEL DO
       end subroutine newint_iabc_cholesky
 

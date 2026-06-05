@@ -654,10 +654,19 @@ contains
                 ! instead of writing 4-RDM to a file
                 call qcmaquis_interface_measure_and_save_3rdm(state_ptr(iroot)-1)
               end if
-              write(*,*) "Reading 3-RDM for state "//trim(str(state_ptr(iroot)))//" from "&
-                  //"checkpoint file "//trim(name_ptr(state_ptr(iroot)))
-              call hdf5_read_rdm(chkpname = trim(curr_dir)//'/'//name_ptr(state_ptr(iroot)), &
+              if (rdm_read) then
+                resultfile = trim(curr_dir)//'/'//trim(molcas_project)// &
+                    ".results_state."//trim(str(state_ptr(iroot)-1))//".h5"
+                write(*,*) "Reading 3-RDM for state "//trim(str(state_ptr(iroot)))// &
+                    " from file "//trim(resultfile)
+                call hdf5_read_rdm_from_resfile(result_name=trim(resultfile), &
                                    rdm3 = daaa(iroot,:,:,:,:,:,:))
+              else
+                write(*,*) "Reading 3-RDM for state "//trim(str(state_ptr(iroot)))//" from "&
+                    //"checkpoint file "//trim(name_ptr(state_ptr(iroot)))
+                call hdf5_read_rdm(chkpname = trim(curr_dir)//'/'//name_ptr(state_ptr(iroot)), &
+                                     rdm3 = daaa(iroot,:,:,:,:,:,:))
+              end if
 ! Old interface
 !               call qcmaquis_interface_ctl(                                &
 !                                       task  = 'imp rdmX',                 &
@@ -692,10 +701,19 @@ contains
                     ! instead of writing 4-RDM to a file
                     call qcmaquis_interface_measure_and_save_4rdm(state_ptr(iroot)-1)
                   endif
-                  write(*,*) "Reading 4-RDM for state "//trim(str(state_ptr(iroot)))//" from "&
-                      //"checkpoint file "//trim(name_ptr(state_ptr(iroot)))
-                  call hdf5_read_rdm(chkpname = trim(curr_dir)//'/'//trim(name_ptr(state_ptr(iroot))), &
-                                    rdm4 = ro4(:,:,:,:,:,iroot))
+                  if (rdm_read) then
+                    resultfile = trim(curr_dir)//'/'//trim(molcas_project)// &
+                        ".results_state."//trim(str(state_ptr(iroot)-1))//".h5"
+                    write(*,*) "Reading 4-RDM for state "//trim(str(state_ptr(iroot)))// &
+                        " from file "//trim(resultfile)
+                    call hdf5_read_rdm_from_resfile(result_name=trim(resultfile), &
+                                                    rdm4 = ro4(:,:,:,:,:,iroot))
+                  else
+                    write(*,*) "Reading 4-RDM for state "//trim(str(state_ptr(iroot)))//" from "&
+                        //"checkpoint file "//trim(name_ptr(state_ptr(iroot)))
+                    call hdf5_read_rdm(chkpname = trim(curr_dir)//'/'//trim(name_ptr(state_ptr(iroot))), &
+                                      rdm4 = ro4(:,:,:,:,:,iroot))
+                  end if
                 else ! rdm_distributed
                   resultfile = trim(molcas_project)// &
                       ".results_state."//trim(str(state_ptr(iroot)-1))//".h5"
@@ -705,21 +723,6 @@ contains
                       path=rdm_path//'/4rdm-scratch.'//trim(str(state_ptr(iroot)-1))//'/parts', &
                       result_name=resultfile)
                 end if
-#ifdef DEBUG_DMRG_NEVPT
-      print *, 'imported rho4 for state ',state_ptr(iroot)
-      do ip=1,nwords
-        do i=1,nact
-          do j=1,nact
-            do k=1,nact
-              do l=1,nact
-                  if(abs(ro4(ip,i,j,k,l,iroot)) > 1.0d-16)&
-       print '(i3,4i2,3x,d19.12)',ip,i,j,k,l,ro4(ip,i,j,k,l,iroot)
-              enddo
-            enddo
-          enddo
-        enddo
-      enddo
-#endif
               end do
             else
               if (rdm_distributed) write(*,*) "Ignoring distributed 4-RDM flag since no 4-RDM has been requested"
