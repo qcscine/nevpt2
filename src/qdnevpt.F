@@ -5009,10 +5009,10 @@ c----------------------------------------------------------------
       implicit real*8 (a-h,o-z)
       logical*1 zgel
       logical, intent(in) :: compute_rho1st
-      dimension coef(nact**3,nact**3,metat),
+      dimension coef(nact**3,nact**3,1),
      $     w(nact**3,*),ro3(nact,nact,nact,nact,nact
      $     ,nact),daa(nact,nact,nact,nact),da(nact,nact)
-     *     ,heffd(norb*(norb+1)/2,metat),zgel(*),e2(metat,*),psi2(*)
+     *     ,heffd(norb*(norb+1)/2,1),zgel(*),e2(metat,*),psi2(*)
       real*8, intent(in) :: ro3off(metat*(metat-1)/2,nact,nact,nact,
      &                                               nact,nact,nact)
       real*8, intent(in) :: daaoff(metat*(metat-1)/2,nact,nact,
@@ -5044,8 +5044,8 @@ Cele QD_new
       nact3s=nact3**2
       metat2=metat**2
       ncoppie=metat*(metat-1)/2
-      allocate(s(nact3,nact3,metat,metat))
-      allocate(sp(nact3,nact,metat,metat))
+      allocate(s(nact3,nact3,metat,1))
+      allocate(sp(nact3,nact,metat,1))
       allocate(deno(metat))
       allocate(aimu(metat,metat))
       s  = 0.0d0; sp = 0.0d0
@@ -5071,35 +5071,35 @@ C$OMP& iabcp,zcond,ijcou,jstate) COLLAPSE(6)
                         iabcp=icp+nact*((ibp-1)+nact*(iap-1))
                         zcond=ib.eq.1.and.ic.eq.1
                         ijcou=0
-                           s(:,iabc,istate,istate)=
-     $  s(:,iabc,istate,istate)+eee2t(icp,iap,ibp,ib,ia,ic
-     $        ,ro3,daa,da,nact,istate,metat)*coef(:,iabcp,istate)
+                           s(:,iabc,istate,1)=
+     $  s(:,iabc,istate,1)+eee2t(icp,iap,ibp,ib,ia,ic
+     $        ,ro3,daa,da,nact,istate,metat)*coef(:,iabcp,1)
                            if (zcond) then
-                             sp(:,ia,istate,istate)=
-     $ sp(:,ia,istate,istate)+ee2tr(icp,iap
-     $ ,ibp,ia,daa,da,nact,istate,metat)*coef(:,iabcp,istate)
+                             sp(:,ia,istate,1)=
+     $ sp(:,ia,istate,1)+ee2tr(icp,iap
+     $ ,ibp,ia,daa,da,nact,istate,metat)*coef(:,iabcp,1)
                            end if
                            do jstate=1,metat
                               if(jstate.eq.istate)cycle
                               if(jstate.lt.istate)then
                                  ijcou=(istate-1)*(istate-2)/2+jstate
-                                 s(:,iabc,jstate,istate)=
-     $ s(:,iabc,jstate,istate)+eee2t(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,
-     $          daoff,nact,ijcou,ncoppie)*coef(:,iabcp,istate)
+                                 s(:,iabc,jstate,1)=
+     $ s(:,iabc,jstate,1)+eee2t(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,
+     $          daoff,nact,ijcou,ncoppie)*coef(:,iabcp,1)
                                  if (zcond) then
-                                   sp(:,ia,jstate,istate)=
-     $ sp(:,ia,jstate,istate)+ee2tl(ia,ibp,iap,icp,daaoff,daoff,nact,
-     $    ijcou,ncoppie)*coef(:,iabcp,istate)
+                                   sp(:,ia,jstate,1)=
+     $ sp(:,ia,jstate,1)+ee2tl(ia,ibp,iap,icp,daaoff,daoff,nact,
+     $    ijcou,ncoppie)*coef(:,iabcp,1)
                                  end if
                               else
                                  ijcou=(jstate-1)*(jstate-2)/2+istate
-                              s(:,iabc,jstate,istate)=
-     $ s(:,iabc,jstate,istate)+eee2t(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
-     $   daoff,nact,ijcou,ncoppie)*coef(:,iabcp,istate)
+                              s(:,iabc,jstate,1)=
+     $ s(:,iabc,jstate,1)+eee2t(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
+     $   daoff,nact,ijcou,ncoppie)*coef(:,iabcp,1)
                                  if (zcond) then
-                                   sp(:,ia,jstate,istate)=
-     $ sp(:,ia,jstate,istate)+ee2tr(icp,iap,ibp,ia,daaoff,daoff,nact,
-     $    ijcou,ncoppie)*coef(:,iabcp,istate)
+                                   sp(:,ia,jstate,1)=
+     $ sp(:,ia,jstate,1)+ee2tr(icp,iap,ibp,ia,daaoff,daoff,nact,
+     $    ijcou,ncoppie)*coef(:,iabcp,1)
                                  end if
                               endif
                            enddo
@@ -5121,7 +5121,7 @@ C$OMP END PARALLEL DO
                         iabc=iabc+1
                        myval=ee2tl(id,ib,ia,ic,daa,da,nact,istate,metat)
                        vaux(id,mu,istate) = vaux(id,mu,istate)
-     &                                    + coef(mu,iabc,istate)
+     &                                    + coef(mu,iabc,1)
      &                                    * myval
                      enddo
                   enddo
@@ -5151,13 +5151,13 @@ c-------------------------------------------------------
             ias=itsym(ia+ncore)
                if (iis.eq.ias) then
                ira=indice(i,ia+ncore)
-               hia(istate)=heffd(ira,istate)
+               hia(istate)=heffd(ira,1)
                   aimu(istate,istate)=aimu(istate,istate)+hia(istate)*
-     *                sp(mu,ia,istate,istate)
+     *                sp(mu,ia,istate,1)
                   do jstate=1,metat
                     if(jstate.eq.istate)cycle
                     aimu(jstate,istate)=aimu(jstate,istate)+hia(istate)*
-     *                sp(mu,ia,jstate,istate)
+     *                sp(mu,ia,jstate,1)
                   enddo
                endif !if (iis.eq.ias)
                do ib=1,nact
@@ -5170,16 +5170,16 @@ c-------------------------------------------------------
                      if (iabcs.ne.iis)cycle
                       baic(istate)=dint1(ia,ic,ib,istate)
                         aimu(istate,istate)=aimu(istate,istate)+
-     *                   baic(istate)*s(mu,iabc,istate,istate)
+     *                   baic(istate)*s(mu,iabc,istate,1)
                         do jstate=1,metat
                            if(jstate.eq.istate)cycle
                            aimu(jstate,istate)=aimu(jstate,istate)+
-     *                   baic(istate)*s(mu,iabc,jstate,istate)
+     *                   baic(istate)*s(mu,iabc,jstate,1)
                         enddo
                   enddo
                enddo
             enddo
-               deno(istate)=w(mu,istate)-epsnew(i,istate)
+               deno(istate)=w(mu,1)-epsnew(i,istate)
                co=aimu(istate,istate)/deno(istate)
                cont=aimu(istate,istate)*co
                e2(istate,istate)=e2(istate,istate)-cont
@@ -5223,10 +5223,10 @@ c------------------------------------------------------------------
       implicit real*8 (a-h,o-z)
       logical, intent(in) :: compute_rho1st
       logical*1 zgel
-      dimension coef(nact**3,nact**3,metat),
+      dimension coef(nact**3,nact**3,1),
      $     w(nact**3,*),ro3(metat,nact,nact
      $     ,nact,nact,nact,nact),daa(metat,nact,nact,nact,nact),da(metat
-     $     ,nact,nact),heffd(norb*(norb+1)/2,metat)
+     $     ,nact,nact),heffd(norb*(norb+1)/2,1)
      *     ,zgel(*),ro3off(metat*(metat-1)/2,nact
      $     ,nact,nact,nact,nact,nact),daaoff(metat*(metat-1)/2,nact,nact
      $     ,nact,nact),daoff(metat*(metat-1)/2,nact,nact),e2(metat,*)
@@ -5257,8 +5257,8 @@ Cele QD_new
       nvirt=norb-ncore-nact
       ncoppie=metat*(metat-1)/2
       metat2=metat**2
-      allocate(s(nact3,nact3,metat,metat))
-      allocate(sp(nact3,nact,metat,metat))
+      allocate(s(nact3,nact3,metat,1))
+      allocate(sp(nact3,nact,metat,1))
       allocate(deno(metat))
       allocate(rmu(metat,metat))
       s = 0.0d0; sp = 0.0d0
@@ -5284,35 +5284,35 @@ C$OMP& iabcp,zcond,ijcou,jstate) COLLAPSE(6)
             iabcp=icp+nact*((ibp-1)+nact*(iap-1))
             ijcou=0
             zcond=ib.eq.1.and.ic.eq.1
-             s(:,iabc,istate,istate)=s(:,iabc,istate,istate)+
+             s(:,iabc,istate,1)=s(:,iabc,istate,1)+
      $  eee2(icp,iap,ibp,ib,ia,ic,ro3,daa,da,nact,istate,metat)
-     $  *coef(:,iabcp,istate)
+     $  *coef(:,iabcp,1)
              if (zcond) then
-               sp(:,ia,istate,istate)=sp(:,ia,istate,istate)+
+               sp(:,ia,istate,1)=sp(:,ia,istate,1)+
      $  ee2(icp,iap,ibp,ia,daa,da,nact,istate,metat)
-     $  *coef(:,iabcp,istate)
+     $  *coef(:,iabcp,1)
              end if
              do jstate=1,metat
               if(jstate.eq.istate)cycle
               if(jstate.lt.istate)then
                  ijcou=(istate-1)*(istate-2)/2+jstate
-                 s(:,iabc,jstate,istate)=
-     $ s(:,iabc,jstate,istate)+eee2(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,
-     $          daoff,nact,ijcou,ncoppie)*coef(:,iabcp,istate)
+                 s(:,iabc,jstate,1)=
+     $ s(:,iabc,jstate,1)+eee2(ic,ia,ib,ibp,iap,icp,ro3off,daaoff,
+     $          daoff,nact,ijcou,ncoppie)*coef(:,iabcp,1)
                  if (zcond) then
-                   sp(:,ia,jstate,istate)=
-     $ sp(:,ia,jstate,istate)+ee2(ia,ibp,iap,icp,daaoff,daoff,nact,
-     $    ijcou,ncoppie)*coef(:,iabcp,istate)
+                   sp(:,ia,jstate,1)=
+     $ sp(:,ia,jstate,1)+ee2(ia,ibp,iap,icp,daaoff,daoff,nact,
+     $    ijcou,ncoppie)*coef(:,iabcp,1)
                  end if
               else
                  ijcou=(jstate-1)*(jstate-2)/2+istate
-                 s(:,iabc,jstate,istate)=
-     $ s(:,iabc,jstate,istate)+eee2(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
-     $   daoff,nact,ijcou,ncoppie)*coef(:,iabcp,istate)
+                 s(:,iabc,jstate,1)=
+     $ s(:,iabc,jstate,1)+eee2(icp,iap,ibp,ib,ia,ic,ro3off,daaoff,
+     $   daoff,nact,ijcou,ncoppie)*coef(:,iabcp,1)
                  if (zcond) then
-                   sp(:,ia,jstate,istate)=
-     $ sp(:,ia,jstate,istate)+ee2(icp,iap,ibp,ia,daaoff,daoff,nact,
-     $    ijcou,ncoppie)*coef(:,iabcp,istate)
+                   sp(:,ia,jstate,1)=
+     $ sp(:,ia,jstate,1)+ee2(icp,iap,ibp,ia,daaoff,daoff,nact,
+     $    ijcou,ncoppie)*coef(:,iabcp,1)
                  end if
               endif
              enddo
@@ -5334,7 +5334,7 @@ C$OMP END PARALLEL DO
                   iabc=iabc+1
                     myval=ee2(id,ib,ia,ic,daa,da,nact,istate,metat)
                     vaux(id,mu,istate) = vaux(id,mu,istate)
-     &                                 + coef(mu,iabc,istate)
+     &                                 + coef(mu,iabc,1)
      &                                 * myval
                 enddo
               enddo
@@ -5369,13 +5369,13 @@ c-------------------------------------------------------
          ira=indice(ir,ia+ncore)
 
          if (ias.eq.irs) then
-         hra(istate)=heffd(ira,istate)
+         hra(istate)=heffd(ira,1)
       rmu(istate,istate)=rmu(istate,istate)+hra(istate)*sp(mu,ia
-     $                 ,istate,istate)
+     $                 ,istate,1)
       do jstate=1,metat
       if(jstate.eq.istate)cycle
       rmu(jstate,istate)=rmu(jstate,istate)+hra(istate)*sp(mu,ia
-     $                    ,jstate,istate)
+     $                    ,jstate,1)
       enddo
       endif !if (ias.eq.irs) then
 
@@ -5389,16 +5389,16 @@ c-------------------------------------------------------
            if (iabcs.ne.irs) cycle
        rabc(istate)=dint1(ia,ic,ib,istate)
       rmu(istate,istate)=rmu(istate,istate)+rabc(istate)*s(mu
-     $                       ,iabc,istate,istate)
+     $                       ,iabc,istate,1)
       do jstate=1,metat
       if(jstate.eq.istate)cycle
       rmu(jstate,istate)=rmu(jstate,istate)+rabc(istate)
-     $                          *s(mu,iabc,jstate,istate)
+     $                          *s(mu,iabc,jstate,1)
       enddo
           enddo
          enddo
         enddo
-         deno(istate)=w(mu,istate)+epsnew(ir,istate)
+         deno(istate)=w(mu,1)+epsnew(ir,istate)
          co=rmu(istate,istate)/deno(istate)
          cont=rmu(istate,istate)*co
          e2(istate,istate)=e2(istate,istate)-cont
@@ -5491,7 +5491,7 @@ Cele QD_new
       allocatable traint_arr(:,:,:), traint1_arr(:,:,:)
 
       nvirt=norb-nact-ncore
-      allocate(heffd(norb*(norb+1)/2,metat))
+      allocate(heffd(norb*(norb+1)/2,1))
       allocate(dint1(nact,nact,nact,metat))
       allocate(cint(metat))
       allocate(cint2(metat))
@@ -5504,8 +5504,8 @@ Cele QD_new
       allocate(psi2(metat))
 
       if(Do_Cholesky) then
-        allocate(traint_arr(ncore,nact,metat))
-        allocate(traint1_arr(ncore,nact,metat))
+        allocate(traint_arr(ncore,nact,1))
+        allocate(traint1_arr(ncore,nact,1))
       end if
       ncoppie=metat*(metat-1)/2
       e2 = 0.0d0
@@ -5516,22 +5516,22 @@ c---- building Dyall's h eff----------
         do ir=1,ncore
         irs=itsym(ir)
         jkr=indice(ik,ir)
-            heffd(jkr,istate)=0.d0
+            heffd(jkr,1)=0.d0
             if (irs.ne.iks) cycle
             call newint_ia(metat,norb,ncore,nact,nevpt_ijkl%oneint,
      *       factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *       nord_nev2mol,nord_mol2nev,ir,ika,istate,traint)
-            heffd(jkr,istate)=traint
+            heffd(jkr,1)=traint
         end do
       end do
 
       do j=1,ncore
         if (Do_Cholesky) then
           call newint_iija_cholesky(cho_reduced_vec,
-     &    traint_arr(:,:,istate),
+     &    traint_arr(:,:,1),
      &    j,ncore,nact,nvirt)
           call newint_ijia_cholesky(cho_reduced_vec,
-     &    traint1_arr(:,:,istate),
+     &    traint1_arr(:,:,1),
      &    j,ncore,nact,nvirt)
         end if
         do ik=ncore+1,ncore+nact
@@ -5541,8 +5541,8 @@ c---- building Dyall's h eff----------
             irs=itsym(ir)
             jkr=indice(ik,ir)
               if (Do_Cholesky) then
-                traint=traint_arr(ir,ika,istate)
-                traint1=traint1_arr(ir,ika,istate)
+                traint=traint_arr(ir,ika,1)
+                traint1=traint1_arr(ir,ika,1)
               else
                 call newint_ijka(metat,norb,ncore,nact,nvirt,
      *       factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -5551,7 +5551,7 @@ c---- building Dyall's h eff----------
      *       factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *       nord_nev2mol,nord_mol2nev,ir,j,j,ika,istate,traint1)
               end if
-              heffd(jkr,istate)=heffd(jkr,istate)+2.d0*traint-traint1
+              heffd(jkr,1)=heffd(jkr,1)+2.d0*traint-traint1
           enddo
         enddo
       enddo
@@ -5596,9 +5596,9 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
           rodum=-da(istate,iap,ia)
           if (iap.eq.ia) rodum=rodum+2.d0
           dumm(istate,istate)=dumm(istate,istate)+
-     *      heffd(iiap,istate)*rodum*heffd(iia,istate)
-          dumk(istate)=dumk(istate)+heffd(iiap,istate)*
-     *         dmat(istate,iap,ia)*heffd(iia,istate)
+     *      heffd(iiap,1)*rodum*heffd(iia,1)
+          dumk(istate)=dumk(istate)+heffd(iiap,1)*
+     *         dmat(istate,iap,ia)*heffd(iia,1)
           do jstate=1,metat
            if(jstate.eq.istate)cycle
            if(jstate.lt.istate)then
@@ -5609,7 +5609,7 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
             rodum=-daoff(ijcou,ia,iap)
            endif
            dumm(jstate,istate)=dumm(jstate,istate)+
-     *         heffd(iiap,istate)*rodum*heffd(iia,istate)
+     *         heffd(iiap,1)*rodum*heffd(iia,1)
           enddo
          do ibp=1,nact
           ibpc=ibp+ncore
@@ -5624,11 +5624,11 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
             cint(istate)=dint1(iap,icp,ibp,istate)
             dumm(istate,istate)=dumm(istate,istate)+2.d0*cint(istate)*
      *         ee2tr(icp,iap,ibp,ia,daa,da,nact,istate,metat)*
-     *         heffd(iia,istate)
+     *         heffd(iia,1)
             dumk(istate)=dumk(istate)+cint(istate)*
-     *           bmat(istate,iap,ibp,icp,ia)*heffd(iia,istate)
+     *           bmat(istate,iap,ibp,icp,ia)*heffd(iia,1)
             dumk(istate)=dumk(istate)+cint(istate)*
-     *           cmat(istate,ia,iap,ibp,icp)*heffd(iia,istate)
+     *           cmat(istate,ia,iap,ibp,icp)*heffd(iia,1)
             do jstate=1,metat
              if(jstate.eq.istate)cycle
              if(jstate.lt.istate)then
@@ -5640,7 +5640,7 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
      $            ,ncoppie)+ee2tl(ia,ibp,iap,icp,daaoff,daoff,nact
      $            ,ijcou,ncoppie)
              dumm(jstate,istate)=dumm(jstate,istate)+cint(istate)
-     $            *dumm2*heffd(iia,istate)
+     $            *dumm2*heffd(iia,1)
             enddo
            do ib=1,nact
             ibc=ib+ncore
@@ -5722,14 +5722,14 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
 
       nact3=nact**3
       allocate(s(1:nact3,1:nact3))
-      allocate(coef(1:nact3,1:nact3,metat))
-      allocate(w(nact3,metat))
+      allocate(coef(1:nact3,1:nact3,1))
+      allocate(w(nact3,1))
       allocate(work(1))
       w = 0; coef = 0
-       call fillcp1p(s,coef(1,1,istate),amat,ro3,daa,da,nact,nact3
+       call fillcp1p(s,coef(1,1,1),amat,ro3,daa,da,nact,nact3
      $      ,istate,metat)
        info = 0
-       call dsyev('V','U',nact3,s,nact3,w(1,istate),work,-1,info)
+       call dsyev('V','U',nact3,s,nact3,w(1,1),work,-1,info)
        if(info.ne.0)then
            print *,'something wrong in diagonalization: s (v(+1p))'
            print *,' info = ',info
@@ -5739,7 +5739,7 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
        deallocate(work)
        allocate(work(lwork))
        info = 0
-       call dsyev('V','U',nact3,s,nact3,w(1,istate),work,lwork,info)
+       call dsyev('V','U',nact3,s,nact3,w(1,1),work,lwork,info)
        if(info.ne.0)then
           print*,'something wrong in diagonalization: sub vpupe'
           stop -332
@@ -5748,7 +5748,7 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
           print*,'matrice metrica diagonalizzata con info=',info
           print*,'autovalori matrice metrica:'
           do i=1,nact3
-           print '(i4,f14.8)',i,w(i,istate)
+           print '(i4,f14.8)',i,w(i,1)
           enddo
        print '(a,f8.2,a)','time for diagonalization of S',t-tini
      $      ,' sec.'
@@ -5757,11 +5757,11 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
        thr=thresh
        ndep=0
        do i=1,nact3
-        if(w(i,istate).lt.0.d0)then
+        if(w(i,1).lt.0.d0)then
            ndep=ndep+1
        if(zverbose)  print '(a,i3,a,f12.8)','negative eigenvalue: eps(',
-     *      i,')=',w(i,istate)
-        elseif(w(i,istate).lt.thr)then
+     *      i,')=',w(i,1)
+        elseif(w(i,1).lt.thr)then
            ndep=ndep+1
         endif
        enddo
@@ -5769,27 +5769,27 @@ c      write (6,*) 'Eccitazione con gli indici',ii,' -> '
        nnew=nact3-ndep
 c--   costruzione della matrice di trasformazione
        allocate (caux(1:nact3,1:nnew))
-       call caux0p(caux,s,w(1,istate),nact3,nnew,thr)
+       call caux0p(caux,s,w(1,1),nact3,nnew,thr)
 c---  trasformazione della matrice K
 c---  moltiplico K(coef) per CAUX e metto il risultato in S
-       call dsymm('L','U',nact3,nnew,1.d0,coef(1,1,istate),nact3,caux
+       call dsymm('L','U',nact3,nnew,1.d0,coef(1,1,1),nact3,caux
      $      ,nact3,0.d0,s,nact3)
 c---  moltiplico CAUX(tilde) per S e metto il risultato in coef
        call dgemm('T','N',nnew,nnew,nact3,1.d0,caux,nact3,s,nact3,0.d0
-     $      ,coef(1,1,istate),nact3)
+     $      ,coef(1,1,1),nact3)
 c       t2=etime(tarray)
       if(zverbose) then
       call cpu_time(t2)
        print '(a,f8.2,a)','time for matrix transf.',t2-t,' sec.'
       endif
 c--   diagonalizzo la matrice coef(hamiltoniana trasformata)
-       call dsyev('V','U',nnew,coef(1,1,istate),nact3,w(1,istate),work
+       call dsyev('V','U',nnew,coef(1,1,1),nact3,w(1,1),work
      $      ,-1,info)
        lwork=work(1)
        deallocate(work)
        allocate(work(lwork))
        info = 0
-       call dsyev('V','U',nnew,coef(1,1,istate),nact3,w(1,istate),work
+       call dsyev('V','U',nnew,coef(1,1,1),nact3,w(1,1),work
      $      ,lwork,info)
        if(info.ne.0)then
           print*,'something wrong in diagonalization: sub vpupe'
@@ -5802,14 +5802,14 @@ c--   diagonalizzo la matrice coef(hamiltoniana trasformata)
           print*,'diagonalization got info=',info
           print*,'eigenvalues:'
           do i=1,nnew
-           print '(a,i4,a,f15.8)','eps(',i,')=',w(i,istate)
+           print '(a,i4,a,f15.8)','eps(',i,')=',w(i,1)
           enddo
        endif
 c--   back transformation
 c--   moltiplico CAUX(nact3,nnew) per coef(nnew,nnew)
 c--   e metto in S(nact3,nnew)
        call dgemm('N','N',nact3,nnew,nnew,1.d0,caux,nact3,coef(1,1
-     $      ,istate),nact3,0.d0,s,nact3)
+     $      ,1),nact3,0.d0,s,nact3)
 c     print*,'nuovi coefficienti'
 c     call matout(nact3,nnew,s,nact3,1.d0)
 c--   metto in coef i coefficienti trasformati (for clarity sake)
@@ -5818,9 +5818,9 @@ c     do mu=1,nnew
        do mu=1,nact3
         do i=1,nact3
          if(mu.le.nnew)then
-            coef(mu,i,istate)=s(i,mu)
+            coef(mu,i,1)=s(i,mu)
          else
-            coef(mu,i,istate)=0.d0
+            coef(mu,i,1)=0.d0
          endif
         enddo
        enddo
@@ -5909,7 +5909,7 @@ c----------------------------------------------------------------
      $     daaoff(metat*(metat-1)/2,nact,nact,nact,nact),
      $     ro3off(metat*(metat-1)/2,nact,nact,nact,nact,nact,nact)
       allocatable s(:,:),coef(:,:,:),w(:,:),work(:),caux(:,:),
-     $     dumm(:,:),dumk(:),den(:),e2(:,:),psi2(:),provmat(:,:)
+     $     dumm(:,:),dumk(:),den(:),e2(:,:),psi2(:)
       indice(i,j)=max(i,j)*(max(i,j)-1)/2+min(i,j)
 
       ! Leon -- Cholesky
@@ -5927,15 +5927,16 @@ Cele QD_new
       allocatable dint1(:,:,:,:),traint_arr(:,:,:),traint1_arr(:,:,:)
       allocatable traint_abbr(:,:,:)
       nvirt=norb-nact-ncore
-      allocate(heffd(norb*(norb+1)/2,metat))
+      allocate(heffd(norb*(norb+1)/2,1))
       allocate(dint1(nact,nact,nact,metat))
       allocate(cint(metat))
       allocate(cint2(metat))
+      heffd = 0.0d0
 
       if(Do_Cholesky) then
-        allocate(traint_arr(nact,nvirt,metat))
-        allocate(traint1_arr(nact,nvirt,metat))
-        allocate(traint_abbr(nact,nact,metat))
+        allocate(traint_arr(nact,nvirt,1))
+        allocate(traint1_arr(nact,nvirt,1))
+        allocate(traint_abbr(nact,nact,1))
       end if
 Cele QD_new
 
@@ -5943,7 +5944,6 @@ Cele QD_new
       allocate(dumk(metat))
       allocate(den(metat))
       allocate(e2(metat,metat))
-      allocate(provmat(metat,metat))
       allocate(psi2(metat))
       e2 = 0.0d0
       ncoppie=metat*(metat-1)/2
@@ -5961,17 +5961,17 @@ c----building Dyall's h eff----------
       call newint_ar(metat,norb,ncore,nact,nevpt_ijkl%oneint,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *   nord_nev2mol,nord_mol2nev,ia,irv,istate,traint)
-            heffd(jkr,istate)=traint
+            heffd(jkr,1)=traint
          end do
       end do
 
       do j=1,ncore
         if (Do_Cholesky) then
           call newint_arij_cholesky(cho_reduced_vec,
-     &    traint_arr(:,:,istate),
+     &    traint_arr(:,:,1),
      &    j,j,ncore,nact,nvirt)
           call newint_airj_cholesky(cho_reduced_vec,
-     &    traint1_arr(:,:,istate),
+     &    traint1_arr(:,:,1),
      &    j,j,ncore,nact,nvirt)
         end if
         do ik=ncore+1,ncore+nact
@@ -5983,8 +5983,8 @@ c----building Dyall's h eff----------
             jkr=indice(ik,ir)
               if (iks.ne.irs) cycle
                 if (Do_Cholesky) then
-                  traint = traint_arr(ia,irv,istate)
-                  traint1 = traint1_arr(ia,irv,istate)
+                  traint = traint_arr(ia,irv,1)
+                  traint1 = traint1_arr(ia,irv,1)
                 else
                   call newint_arij(metat,norb,ncore,nact,nvirt,
      *             factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
@@ -5993,7 +5993,7 @@ c----building Dyall's h eff----------
      *             factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *            nord_nev2mol,nord_mol2nev,ia,j,irv,j,istate,traint1)
                 end if
-            heffd(jkr,istate)=heffd(jkr,istate)+
+            heffd(jkr,1)=heffd(jkr,1)+
      *        2.d0*traint-traint1
           end do
         end do
@@ -6004,7 +6004,7 @@ c----building Dyall's h eff----------
         irv=ir-ncore-nact
         if (Do_Cholesky) then
           call newint_abbr_cholesky(cho_reduced_vec,
-     &    traint_abbr(:,:,istate),
+     &    traint_abbr(:,:,1),
      &    ir,ncore,nact,nvirt)
         ! TODO: there should be a way to avoid the newint_abbr_cholesky call here and use the same batch for building the Dyall Hamiltonian here and calculating the SC contributions below
         end if
@@ -6016,13 +6016,13 @@ c----building Dyall's h eff----------
             do j=ncore+1,ncore+nact
               ib=j-ncore
               if (Do_Cholesky) then
-                traint = traint_abbr(ia,ib,istate)
+                traint = traint_abbr(ia,ib,1)
               else
                 call newint_abcr(metat,norb,ncore,nact,nvirt,
      *   factor,nsym,uv,uc,nmo,nc,na,nv,nbe,ncmax,nvmax,
      *   nord_nev2mol,nord_mol2nev,ia,ib,ib,irv,istate,traint)
               end if
-              heffd(jkr,istate)=heffd(jkr,istate)-traint
+              heffd(jkr,1)=heffd(jkr,1)-traint
             enddo
         enddo
       enddo
@@ -6076,18 +6076,18 @@ C$OMP& REDUCTION(+:dummii,dummji,dumki)
                irap=indice(ir,iapc)
                if (istate.eq.jstate) then
                  dummii=dummii+
-     *          heffd(irap,istate)*da(istate,iap,ia)*heffd(ira,istate)
-                 dumki=dumki+heffd(irap,istate)
-     *            *dmat(istate,iap,ia)*heffd(ira,istate)
+     *          heffd(irap,1)*da(istate,iap,ia)*heffd(ira,1)
+                 dumki=dumki+heffd(irap,1)
+     *            *dmat(istate,iap,ia)*heffd(ira,1)
                else
                  if(jstate.lt.istate)then
                    dummji=dummji+
-     $             heffd(irap,istate)*daoff(ijcou,ia,iap)*
-     $             heffd(ira,istate)
+     $             heffd(irap,1)*daoff(ijcou,ia,iap)*
+     $             heffd(ira,1)
                  else
                    dummji=dummji+
-     $             heffd(irap,istate)*daoff(ijcou,iap,ia)*
-     $             heffd(ira,istate)
+     $             heffd(irap,1)*daoff(ijcou,iap,ia)*
+     $             heffd(ira,1)
                  endif
                endif
 
@@ -6099,18 +6099,18 @@ C$OMP& REDUCTION(+:dummii,dummji,dumki)
                      dummii=dummii+2.d0*
      *                 dint1(iap,icp,ibp,istate)*
      *                 ee2(icp,iap,ibp,ia,daa,da,nact,istate,metat)*
-     *                 heffd(ira,istate)
+     *                 heffd(ira,1)
                      dumki=dumki+dint1(iap,icp,ibp,
      *                 istate)*bmat(istate,iap,ibp,icp,ia)*
-     *                 heffd(ira,istate)+dint1(iap,icp,ibp,istate)*
-     *                 cmat(istate,ia,iap,ibp,icp)*heffd(ira,istate)
+     *                 heffd(ira,1)+dint1(iap,icp,ibp,istate)*
+     *                 cmat(istate,ia,iap,ibp,icp)*heffd(ira,1)
                    else
                      dumm2=ee2(icp,iap,ibp,ia,daaoff,daoff,nact,
      $                 ijcou,ncoppie)+ee2(ia,ibp,iap,icp,daaoff,
      $                 daoff,nact,ijcou,ncoppie)
                      dummji=dummji+
      $                 dint1(iap,icp,ibp,istate)*dumm2*
-     $                 heffd(ira,istate)
+     $                 heffd(ira,1)
                    endif
 
                    do ib=1,nact
@@ -6167,10 +6167,10 @@ C$OMP END PARALLEL DO
           irap=indice(ir,iapc)
           ijcou=0
           if ((ias.eq.irs).and.(iaps.eq.irs)) then
-            dumm(istate,istate)=dumm(istate,istate)+heffd(irap,istate)
-     *          *da(istate,iap,ia)*heffd(ira,istate)
-            dumk(istate)=dumk(istate)+heffd(irap,istate)
-     *          *dmat(istate,iap,ia)*heffd(ira,istate)
+            dumm(istate,istate)=dumm(istate,istate)+heffd(irap,1)
+     *          *da(istate,iap,ia)*heffd(ira,1)
+            dumk(istate)=dumk(istate)+heffd(irap,1)
+     *          *dmat(istate,iap,ia)*heffd(ira,1)
             do jstate=1,metat
               if(jstate.eq.istate)cycle
               if(jstate.lt.istate)then
@@ -6181,7 +6181,7 @@ C$OMP END PARALLEL DO
                 dumm2=daoff(ijcou,iap,ia)
               endif
               dumm(jstate,istate)=dumm(jstate,istate)+
-     $             heffd(irap,istate)*dumm2*heffd(ira,istate)
+     $             heffd(irap,1)*dumm2*heffd(ira,1)
             enddo
           endif !if ((ias.eq.irs).and.(iaps.eq.irs))
 
@@ -6198,11 +6198,11 @@ C$OMP END PARALLEL DO
             cint(istate)=dint1(iap,icp,ibp,istate)
               dumm(istate,istate)=dumm(istate,istate)+2.d0*cint(istate)*
      *           ee2(icp,iap,ibp,ia,daa,da,nact,istate,metat)*
-     *           heffd(ira,istate)
+     *           heffd(ira,1)
               dumk(istate)=dumk(istate)+cint(istate)*
-     *           bmat(istate,iap,ibp,icp,ia)*heffd(ira,istate)
+     *           bmat(istate,iap,ibp,icp,ia)*heffd(ira,1)
               dumk(istate)=dumk(istate)+cint(istate)*
-     *           cmat(istate,ia,iap,ibp,icp)*heffd(ira,istate)
+     *           cmat(istate,ia,iap,ibp,icp)*heffd(ira,1)
               do jstate=1,metat
                 if(jstate.eq.istate)cycle
                 if(jstate.lt.istate)then
@@ -6214,7 +6214,7 @@ C$OMP END PARALLEL DO
      $             ijcou,ncoppie)+ee2(ia,ibp,iap,icp,daaoff,
      $             daoff,nact,ijcou,ncoppie)
                 dumm(jstate,istate)=dumm(jstate,istate)+cint(istate)
-     $             *dumm2*heffd(ira,istate)
+     $             *dumm2*heffd(ira,1)
               enddo
 
             do ib=1,nact
@@ -6294,7 +6294,6 @@ c------------------
      *             psimpp(7,istate)
       end if
       call flush(6)
-      deallocate(provmat)
       deallocate(dint1)
       deallocate(cint)
       deallocate(cint2)
@@ -6303,19 +6302,19 @@ c--------------------
 c--   Partially contracted NEV-PT class (-1')
       nact3=nact**3
       allocate(s(nact3,nact3))
-      allocate(coef(1:nact3,1:nact3,metat))
-      allocate(w(nact3,metat))
+      allocate(coef(1:nact3,1:nact3,1))
+      allocate(w(nact3,1))
       allocate(work(1))
       w = 0.0d0; coef = 0.0d0
-         call fillcm1p(s,coef(1,1,istate),amat,ro3,daa,da,nact,nact3
+         call fillcm1p(s,coef(1,1,1),amat,ro3,daa,da,nact,nact3
      $        ,istate,metat)
          info = 0
-         call dsyev('V','U',nact3,s,nact3,w(1,istate),work,-1,info)
+         call dsyev('V','U',nact3,s,nact3,w(1,1),work,-1,info)
          lwork=work(1)
          deallocate(work)
          allocate(work(lwork))
          info = 0
-         call dsyev('V','U',nact3,s,nact3,w(1,istate),work,lwork,info)
+         call dsyev('V','U',nact3,s,nact3,w(1,1),work,lwork,info)
          if(info.ne.0)then
             print*,'something wrong in diagonalization: sub vmupe'
             stop -330
@@ -6324,7 +6323,7 @@ c--   Partially contracted NEV-PT class (-1')
             print*,'matrice metrica diagonalizzata con info=',info
             print*,'autovalori matrice metrica:'
             do i=1,nact3
-               print '(i4,f14.8)',i,w(i,istate)
+               print '(i4,f14.8)',i,w(i,1)
             enddo
          print '(a,f8.2,a)','time for diagonalization of S',t-tini
      $        ,' sec.'
@@ -6333,11 +6332,11 @@ c--   Partially contracted NEV-PT class (-1')
          thr=thresh
          ndep=0
          do i=1,nact3
-            if(w(i,istate).lt.0.d0)then
+            if(w(i,1).lt.0.d0)then
                ndep=ndep+1
        if(zverbose)print '(a,i3,a,f12.8)','negative eigenvalue: eps(',i,
-     *      ')=',w(i,istate)
-            elseif(w(i,istate).lt.thr)then
+     *      ')=',w(i,1)
+            elseif(w(i,1).lt.thr)then
                ndep=ndep+1
             endif
          enddo
@@ -6345,15 +6344,15 @@ c--   Partially contracted NEV-PT class (-1')
          nnew=nact3-ndep
 c--   costruzione della matrice di trasformazione
          allocate (caux(1:nact3,1:nnew))
-         call caux0p(caux,s,w(1,istate),nact3,nnew,thr)
+         call caux0p(caux,s,w(1,1),nact3,nnew,thr)
 c         if(zverbose)print*,'check: final jnew is',jnew
 c---  trasformazione della matrice K
 c---  moltiplico K(coef) per CAUX e metto il risultato in S
-         call dsymm('L','U',nact3,nnew,1.d0,coef(1,1,istate),nact3,caux
+         call dsymm('L','U',nact3,nnew,1.d0,coef(1,1,1),nact3,caux
      $        ,nact3,0.d0,s,nact3)
 c---  moltiplico CAUX(tilde) per S e metto il risultato in coef
          call dgemm('T','N',nnew,nnew,nact3,1.d0,caux,nact3,s,nact3,0.d0
-     $        ,coef(1,1,istate),nact3)
+     $        ,coef(1,1,1),nact3)
 c         t2=etime(tarray)
        if(zverbose) then
       call cpu_time(t2)
@@ -6361,13 +6360,13 @@ c         t2=etime(tarray)
       endif
 c--   diagonalizzo la matrice coef(hamiltoniana trasformata)
          info = 0
-         call dsyev('V','U',nnew,coef(1,1,istate),nact3,w(1,istate),work
+         call dsyev('V','U',nnew,coef(1,1,1),nact3,w(1,1),work
      $        ,-1,info)
          lwork=work(1)
          deallocate(work)
          allocate(work(lwork))
          info = 0
-         call dsyev('V','U',nnew,coef(1,1,istate),nact3,w(1,istate),work
+         call dsyev('V','U',nnew,coef(1,1,1),nact3,w(1,1),work
      $        ,lwork,info)
          if(info.ne.0)then
             print*,'something wrong in diagonalization: sub vmupe'
@@ -6381,7 +6380,7 @@ c         t3=etime(tarray)
             print*,'diagonalization got info=',info
             print*,'eigenvalues:'
             do i=1,nnew
-               print '(a,i4,a,f15.8)','eps(',i,')=',w(i,istate)
+               print '(a,i4,a,f15.8)','eps(',i,')=',w(i,1)
             enddo
             call flush(6)
          endif
@@ -6389,7 +6388,7 @@ c--   back transformation
 c--   moltiplico CAUX(nact3,nnew) per coef(nnew,nnew)
 c--   e metto in S(nact3,nnew)
          call dgemm('N','N',nact3,nnew,nnew,1.d0,caux,nact3,coef(1,1
-     $        ,istate),nact3,0.d0,s,nact3)
+     $        ,1),nact3,0.d0,s,nact3)
 c     print*,'nuovi coefficienti'
 c     call matout(nact3,nnew,s,nact3,1.d0)
 c--   metto in coef i coefficienti trasformati (for clarity sake)
@@ -6398,9 +6397,9 @@ c         do mu=1,nnew
          do mu=1,nact3
             do i=1,nact3
                if(mu.le.nnew)then
-                  coef(mu,i,istate)=s(i,mu)
+                  coef(mu,i,1)=s(i,mu)
                else
-                  coef(mu,i,istate)=0.d0
+                  coef(mu,i,1)=0.d0
                endif
             enddo
          enddo
