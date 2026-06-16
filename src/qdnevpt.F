@@ -5058,7 +5058,7 @@ Cele QD_new
       iabcp=0
       ijcou=0
 C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(ia,ib,ic,iap,ibp,icp,iabc,
-C$OMP& iabcp,zcond,ijcou,jstate) COLLAPSE(6)
+C$OMP& iabcp,zcond,ijcou,jstate) COLLAPSE(3)
       do ia=1,nact
          do ib=1,nact
             do ic=1,nact
@@ -5273,7 +5273,7 @@ Cele QD_new
       iabcp=0
       ijcou=0
 C$OMP PARALLEL DO DEFAULT(shared) PRIVATE(ia,ib,ic,iap,ibp,icp,iabc,
-C$OMP& iabcp,zcond,ijcou,jstate) COLLAPSE(6)
+C$OMP& iabcp,zcond,ijcou,jstate) COLLAPSE(3)
       do ia=1,nact
        do ib=1,nact
         do ic=1,nact
